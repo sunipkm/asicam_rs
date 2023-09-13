@@ -1,6 +1,6 @@
 use fitsio::images::{ImageDescription, ImageType};
 use fitsio::FitsFile;
-use image::{DynamicImage, ImageBuffer};
+use image::DynamicImage;
 use log::{info, warn};
 use std::fmt::Display;
 use std::fs::remove_file;
@@ -92,55 +92,6 @@ impl ImageData {
 
     pub fn add_extended_attrib(&mut self, key: &str, val: &str) {
         self.meta.add_extended_attrib(key, val);
-    }
-
-    pub fn clear_image(&mut self) {
-        let imgtype = self.img.color();
-        let width = self.img.width();
-        let height = self.img.height();
-
-        self.img = {
-            match imgtype {
-                image::ColorType::L8 => {
-                    DynamicImage::from(ImageBuffer::<image::Luma<u8>, Vec<u8>>::new(width, height))
-                }
-                image::ColorType::L16 => DynamicImage::from(ImageBuffer::<
-                    image::Luma<u16>,
-                    Vec<u16>,
-                >::new(width, height)),
-                image::ColorType::Rgb8 => {
-                    DynamicImage::from(ImageBuffer::<image::Rgb<u8>, Vec<u8>>::new(width, height))
-                }
-                image::ColorType::Rgb16 => {
-                    DynamicImage::from(ImageBuffer::<image::Rgb<u16>, Vec<u16>>::new(width, height))
-                }
-                image::ColorType::Rgba8 => {
-                    DynamicImage::from(ImageBuffer::<image::Rgba<u8>, Vec<u8>>::new(width, height))
-                }
-                image::ColorType::Rgba16 => {
-                    DynamicImage::from(ImageBuffer::<image::Rgba<u16>, Vec<u16>>::new(
-                        width, height,
-                    ))
-                }
-                _ => {
-                    panic!("Unsupported image type");
-                }
-            }
-        };
-
-        self.meta.img_left = 0;
-        self.meta.img_top = 0;
-        self.meta.bin_x = 1;
-        self.meta.bin_y = 1;
-        self.meta.temperature = 0.0;
-        self.meta.exposure = Duration::from_secs(0);
-        self.meta.timestamp = 0;
-        self.meta.camera_name = String::from("");
-        self.meta.gain = 0;
-        self.meta.offset = 0;
-        self.meta.min_gain = 0;
-        self.meta.max_gain = 0;
-        self.meta.extended_metadata.clear();
     }
 
     pub fn get_metadata(&self) -> &ImageMetaData {
@@ -268,26 +219,26 @@ impl ImageData {
 
     pub fn save_fits(
         &self,
-        dir_prefix: &str,
+        dir_prefix: &Path,
         file_prefix: &str,
         progname: &str,
         compress: bool,
         overwrite: bool,
     ) -> Result<(), fitsio::errors::Error> {
-        if !Path::new(dir_prefix).exists() {
+        if !dir_prefix.exists() {
             return Err(fitsio::errors::Error::Message(format!(
                 "Directory {} does not exist",
-                dir_prefix
+                dir_prefix.to_string_lossy()
             )));
         }
 
-        let fpath = Path::new(dir_prefix).join(Path::new(&format!(
+        let fpath = dir_prefix.join(Path::new(&format!(
             "{}_{}.fits",
             file_prefix, self.meta.timestamp
         )));
 
         if fpath.exists() {
-            warn!("File {} already exists", fpath.to_str().unwrap());
+            warn!("File {} already exists", fpath.to_string_lossy());
             if !overwrite {
                 return Err(fitsio::errors::Error::Message(format!(
                     "File {:?} already exists",
@@ -308,7 +259,7 @@ impl ImageData {
         let imgtype = self.img.color();
         let width = self.img.width();
         let height = self.img.height();
-        let imgsize = vec![width as usize, height as usize];
+        let imgsize = [width as usize, height as usize];
         let data_type: ImageType;
 
         match imgtype {

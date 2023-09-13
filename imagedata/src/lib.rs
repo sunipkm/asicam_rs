@@ -1,10 +1,10 @@
 mod imagedata;
 
-pub use imagedata::{ImageMetaData, ImageData};
+pub use imagedata::{ImageData, ImageMetaData};
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{path::Path, time::Duration};
 
     use super::*;
     use image::{DynamicImage, ImageBuffer};
@@ -38,6 +38,7 @@ mod tests {
             .map(|_| rng.gen_range(0..255 * 255))
             .collect();
         bimg.copy_from_slice(&vals);
-        img.save_fits(".", "test", "testprog", true, true).unwrap();
+        img.save_fits(Path::new("."), "test", "testprog", true, true)
+            .unwrap();
     }
 }
