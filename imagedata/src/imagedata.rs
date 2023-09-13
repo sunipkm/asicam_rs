@@ -131,7 +131,7 @@ impl ImageData {
             exposure.as_millis() as f64 * 1e-3,
             bin
         );
-        let mut img = self.img.to_luma16();
+        let mut img = self.img.clone().into_luma16();
         img.sort();
         let mut coord: usize;
         if percentile_pix > 99.9 {
