@@ -40,5 +40,6 @@ mod tests {
         bimg.copy_from_slice(&vals);
         img.save_fits(Path::new("."), "test", "testprog", true, true)
             .unwrap();
+        img.get_image().save(format!("test_{}.png", img.get_metadata().timestamp)).unwrap();
     }
 }
