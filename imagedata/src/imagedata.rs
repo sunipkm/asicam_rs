@@ -68,10 +68,10 @@ impl ImageMetaData {
     }
 }
 
-#[derive(Clone)]
 /// Image data structure
 ///
 /// This structure contains the image data and the metadata associated with it.
+#[derive(Clone)]
 pub struct ImageData {
     img: DynamicImage,
     meta: ImageMetaData,
@@ -113,16 +113,43 @@ impl ImageData {
     pub fn find_optimum_exposure(
         &self,
         percentile_pix: f32,
-        pixel_tgt: u16,
+        pixel_tgt: f32,
+        pixel_uncertainty: f32,
+        min_allowed_exp: Duration,
         max_allowed_exp: Duration,
         max_allowed_bin: u16,
         pixel_exclusion: u32,
-        pixel_uncertainty: u16,
     ) -> Result<(Duration, u16), String> {
         let exposure = self.meta.exposure;
+
         let mut target_exposure;
+
         let mut change_bin = true;
-        if self.meta.bin_x != self.meta.bin_y {
+
+        if pixel_tgt < 1.6e-5f32 || pixel_tgt > 1f32 {
+            return Err("Target pixel value must be between 1.6e-5 and 1".to_string());
+        }
+
+        if pixel_uncertainty < 1.6e-5f32 || pixel_uncertainty > 1f32 {
+            return Err("Pixel uncertainty must be between 1.6e-5 and 1".to_string());
+        }
+
+        if min_allowed_exp >= max_allowed_exp {
+            return Err(
+                "Minimum allowed exposure must be less than maximum allowed exposure".to_string(),
+            );
+        }
+
+        let max_allowed_bin = if max_allowed_bin < 2 {
+            1
+        } else {
+            max_allowed_bin
+        };
+
+        let pixel_tgt = pixel_tgt * 65535f32;
+        let pixel_uncertainty = pixel_uncertainty * 65535f32;
+
+        if self.meta.bin_x != self.meta.bin_y || max_allowed_bin < 2 {
             change_bin = false;
         }
         let mut bin = self.meta.bin_x as u16;
@@ -146,14 +173,14 @@ impl ImageData {
         let imgvec = img.to_vec();
         let val = imgvec.get(coord);
         let val = match val {
-            Some(v) => *v as f32,
+            Some(v) => *v as f64,
             None => {
                 info!("Could not get pixel value at {} percentile", percentile_pix);
-                1e-5 as f32
+                1e-5 as f64
             }
         };
 
-        if (pixel_tgt as f32 - val).abs() < pixel_uncertainty as f32 {
+        if (pixel_tgt as f64 - val).abs() < pixel_uncertainty as f64 {
             info!(
                 "Target pixel value {} reached at exposure = {} s, bin = {}, unchanged.",
                 pixel_tgt,
@@ -171,26 +198,25 @@ impl ImageData {
             }
         };
 
-        target_exposure = Duration::from_micros(
-            ((pixel_tgt as f64 * exposure.as_micros() as f64 * 1e-6 / val as f64) * 1e6).abs()
-                as u64,
+        target_exposure = Duration::from_secs_f64(
+            (pixel_tgt as f64 * exposure.as_micros() as f64 * 1e-6 / val as f64).abs(),
         );
 
         if change_bin {
-            let mut tgt_exp = target_exposure.as_micros() as f64 * 1e-6;
+            let mut tgt_exp = target_exposure;
             let mut bin_ = bin;
-            if tgt_exp < max_allowed_exp.as_micros() as f64 * 1e-6 {
-                while tgt_exp < max_allowed_exp.as_micros() as f64 && bin_ > 2 {
+            if tgt_exp < max_allowed_exp {
+                while tgt_exp < max_allowed_exp && bin_ > 2 {
                     bin_ /= 2;
-                    tgt_exp *= 4.0;
+                    tgt_exp *= 4;
                 }
             } else {
-                while tgt_exp > max_allowed_exp.as_micros() as f64 && bin_ * 2 <= max_allowed_bin {
+                while tgt_exp > max_allowed_exp && bin_ * 2 <= max_allowed_bin {
                     bin_ *= 2;
-                    tgt_exp /= 4.0;
+                    tgt_exp /= 4;
                 }
             }
-            target_exposure = Duration::from_micros((tgt_exp * 1e6 as f64).abs() as u64);
+            target_exposure = tgt_exp;
             bin = bin_;
         }
 
@@ -198,8 +224,8 @@ impl ImageData {
             target_exposure = max_allowed_exp;
         }
 
-        if target_exposure.as_micros() as f64 * 1e-6 < 1e-5 {
-            target_exposure = Duration::from_micros(10);
+        if target_exposure < min_allowed_exp {
+            target_exposure = min_allowed_exp;
         }
 
         if bin < 1 {
