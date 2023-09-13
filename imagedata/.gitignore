@@ -2,3 +2,4 @@
 /Cargo.lock
 **/*.fit*
 **/*.png
+**/.DS_Store

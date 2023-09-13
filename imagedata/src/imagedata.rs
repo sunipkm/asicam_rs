@@ -5,17 +5,17 @@ use log::{info, warn};
 use std::fmt::Display;
 use std::fs::remove_file;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
 pub struct ImageMetaData {
-    pub bin_x: i32,
-    pub bin_y: i32,
-    pub img_top: i32,
-    pub img_left: i32,
+    pub bin_x: u32,
+    pub bin_y: u32,
+    pub img_top: u32,
+    pub img_left: u32,
     pub temperature: f32,
-    pub exposure: std::time::Duration,
-    pub timestamp: u64,
+    pub exposure: Duration,
+    pub timestamp: SystemTime,
     pub camera_name: String,
     pub gain: i64,
     pub offset: i64,
@@ -24,11 +24,68 @@ pub struct ImageMetaData {
     extended_metadata: Vec<(String, String)>,
 }
 
+impl ImageMetaData {
+    pub fn new(timestamp: SystemTime, exposure: Duration, temperature: f32, bin_x: u32, bin_y: u32, camera_name: &str, gain: i64, offset: i64) -> Self
+    {
+        Self {
+            bin_x,
+            bin_y,
+            img_top: 0,
+            img_left: 0,
+            temperature,
+            exposure,
+            timestamp,
+            camera_name: camera_name.to_string(),
+            gain,
+            offset,
+            ..Default::default()
+        }
+    }
+
+    pub fn full_builder(bin_x: u32, bin_y: u32, img_top: u32, img_left: u32, temperature: f32, exposure: Duration, timestamp: SystemTime, camera_name: &str, gain: i64, offset: i64, min_gain: i32, max_gain: i32) -> Self {
+        Self {
+            bin_x,
+            bin_y,
+            img_top,
+            img_left,
+            temperature,
+            exposure,
+            timestamp,
+            camera_name: camera_name.to_string(),
+            gain,
+            offset,
+            min_gain,
+            max_gain,
+            ..Default::default()
+        }
+    }
+}
+
+impl Default for ImageMetaData {
+    fn default() -> Self {
+        Self {
+            bin_x: 1,
+            bin_y: 1,
+            img_top: 0,
+            img_left: 0,
+            temperature: 0f32,
+            exposure: Duration::from_secs(0),
+            timestamp: UNIX_EPOCH,
+            camera_name: String::new(),
+            gain: 0,
+            offset: 0,
+            min_gain: 0,
+            max_gain: 0,
+            extended_metadata: Vec::new(),
+        }
+    }
+}
+
 impl Display for ImageMetaData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "ImageMetaData [{}]:\n
+            "ImageMetaData [{:#?}]:\n
             \tCamera name: {}\n
             \tImage Bin: {} x {}\n
             \tImage Origin: {} x {}
@@ -258,9 +315,25 @@ impl ImageData {
             )));
         }
 
+        let timestamp;
+        if let Ok(val) = self.meta.timestamp.duration_since(UNIX_EPOCH) {
+            timestamp = val.as_millis()
+        } else {
+            return Err(fitsio::errors::Error::Message(format!(
+                "Could not convert timestamp {:?} to milliseconds",
+                self.meta.timestamp
+            )));
+        };
+
+        let file_prefix = if file_prefix.is_empty() {
+            "image"
+        } else {
+            file_prefix
+        };
+
         let fpath = dir_prefix.join(Path::new(&format!(
             "{}_{}.fits",
-            file_prefix, self.meta.timestamp
+            file_prefix, timestamp as u64
         )));
 
         if fpath.exists() {
@@ -285,7 +358,7 @@ impl ImageData {
         let imgtype = self.img.color();
         let width = self.img.width();
         let height = self.img.height();
-        let imgsize = [width as usize, height as usize];
+        let imgsize = [height as usize, width as usize];
         let data_type: ImageType;
 
         match imgtype {
@@ -310,7 +383,7 @@ impl ImageData {
         let path = Path::new(dir_prefix).join(Path::new(&format!(
             "{}_{}.fits{}",
             file_prefix,
-            self.meta.timestamp,
+            timestamp as u64,
             if compress { "[compress]" } else { "" }
         )));
         let mut fptr = FitsFile::create(path).open()?;
@@ -332,7 +405,7 @@ impl ImageData {
         }
         hdu.write_key(&mut fptr, "PROGRAM", progname)?;
         hdu.write_key(&mut fptr, "CAMERA", self.meta.camera_name.as_str())?;
-        hdu.write_key(&mut fptr, "TIMESTAMP", self.meta.timestamp)?;
+        hdu.write_key(&mut fptr, "TIMESTAMP", timestamp as u64)?;
         hdu.write_key(&mut fptr, "CCDTEMP", self.meta.temperature)?;
         hdu.write_key(
             &mut fptr,
