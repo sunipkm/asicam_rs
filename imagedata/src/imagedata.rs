@@ -21,7 +21,7 @@ pub struct ImageMetaData {
     pub offset: i64,
     pub min_gain: i32,
     pub max_gain: i32,
-    pub extended_metadata: Vec<(String, String)>,
+    extended_metadata: Vec<(String, String)>,
 }
 
 impl Display for ImageMetaData {
