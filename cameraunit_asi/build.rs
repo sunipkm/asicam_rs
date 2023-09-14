@@ -73,7 +73,7 @@ fn main() {
         .write_to_file(out_path)
         .expect("Couldn't write bindings!");
 
-    cc::Build::new()
+    // cc::Build::new()
     //     .file("src/lib.c")
-        .compile("cameraunit_asi");
+    //     .compile("cameraunit_asi");
 }
