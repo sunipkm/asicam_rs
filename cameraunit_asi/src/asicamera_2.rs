@@ -43,7 +43,7 @@ impl ASIBayerPattern {
 
 #[repr(i32)]
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum ASIImageFormat {
+pub enum ASIImageFormat {
     Image_RAW8 = ASI_IMG_TYPE_ASI_IMG_RAW8,
     Image_RGB24 = ASI_IMG_TYPE_ASI_IMG_RGB24,
     Image_RAW16 = ASI_IMG_TYPE_ASI_IMG_RAW16,
@@ -799,6 +799,30 @@ impl CameraUnit_ASI {
         Ok(ser)
     }
 
+    pub fn get_image_fmt(&self) -> ASIImageFormat {
+        self.image_fmt
+    }
+
+    pub fn set_image_fmt(&mut self, fmt: ASIImageFormat) -> Result<(), Error> {
+        if self.image_fmt == fmt {
+            return Ok(());
+        }
+        if !self.props.supported_formats.contains(&fmt) {
+            return Err(Error::InvalidMode(format!(
+                "Format {:?} not supported by camera",
+                fmt
+            )));
+        }
+        if self.is_capturing() {
+            return Err(Error::ExposureInProgress);
+        }
+        let mut roi = self.get_roi_format()?;
+        roi.fmt = fmt;
+        self.set_roi_format(&roi)?;
+        self.image_fmt = fmt;
+        Ok(())
+    }
+
     fn get_exposure_status(&self) -> Result<ASIExposureStatus, Error> {
         let stat = MaybeUninit::<ASI_EXPOSURE_STATUS>::zeroed();
         let mut stat = unsafe { stat.assume_init() };
@@ -862,7 +886,13 @@ impl CameraUnit for CameraUnit_ASI {
     }
 
     fn is_capturing(&self) -> bool {
-        *self.capturing.lock().unwrap()
+        let res = self.capturing.try_lock();
+        match res {
+            Ok(capturing) => *capturing,
+            Err(_) => {
+                true
+            }
+        }
     }
 
     fn camera_ready(&self) -> bool {
@@ -1156,7 +1186,8 @@ impl CameraUnit for CameraUnit_ASI {
             exposure.as_micros() as c_long,
             false,
         )?;
-        self.exposure = exposure;
+        let (exposure, _is_auto) = self.get_control_value(ASIControlType::Exposure)?;
+        self.exposure = Duration::from_micros(exposure as u64);
         Ok(self.exposure)
     }
 
