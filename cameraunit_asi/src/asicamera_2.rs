@@ -2,12 +2,15 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-include!("asicamera2_bindings.rs");
+#[allow(dead_code,unused_imports)]
+mod asicamera2_bindings;
+use asicamera2_bindings::*;
 
 use std::{
     ffi::{c_long, c_uchar, CStr},
     fmt::Display,
     mem::MaybeUninit,
+    sync::{Arc, Mutex},
     thread::sleep,
     time::{Duration, SystemTime},
 };
@@ -15,24 +18,24 @@ use std::{
 use cameraunit::{CameraUnit, Error, ROI};
 use image::DynamicImage;
 use imagedata::{ImageData, ImageMetaData};
-use log::{warn, info};
+use log::{info, warn};
 
 #[repr(u32)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum ASIBayerPattern {
-    Bayer_RG = 0,
-    Bayer_BG = 1,
-    Bayer_GR = 2,
-    Bayer_GB = 3,
+    Bayer_RG = ASI_BAYER_PATTERN_ASI_BAYER_RG,
+    Bayer_BG = ASI_BAYER_PATTERN_ASI_BAYER_BG,
+    Bayer_GR = ASI_BAYER_PATTERN_ASI_BAYER_GR,
+    Bayer_GB = ASI_BAYER_PATTERN_ASI_BAYER_GB,
 }
 
 impl ASIBayerPattern {
     fn from_u32(val: u32) -> Option<Self> {
         match val {
-            0 => Some(ASIBayerPattern::Bayer_RG),
-            1 => Some(ASIBayerPattern::Bayer_BG),
-            2 => Some(ASIBayerPattern::Bayer_GR),
-            3 => Some(ASIBayerPattern::Bayer_GB),
+            ASI_BAYER_PATTERN_ASI_BAYER_RG => Some(ASIBayerPattern::Bayer_RG),
+            ASI_BAYER_PATTERN_ASI_BAYER_BG => Some(ASIBayerPattern::Bayer_BG),
+            ASI_BAYER_PATTERN_ASI_BAYER_GR => Some(ASIBayerPattern::Bayer_GR),
+            ASI_BAYER_PATTERN_ASI_BAYER_GB => Some(ASIBayerPattern::Bayer_GB),
             _ => None,
         }
     }
@@ -41,17 +44,17 @@ impl ASIBayerPattern {
 #[repr(i32)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum ASIImageFormat {
-    Image_RAW8 = 0,
-    Image_RGB24 = 1,
-    Image_RAW16 = 2,
+    Image_RAW8 = ASI_IMG_TYPE_ASI_IMG_RAW8,
+    Image_RGB24 = ASI_IMG_TYPE_ASI_IMG_RGB24,
+    Image_RAW16 = ASI_IMG_TYPE_ASI_IMG_RAW16,
 }
 
 impl ASIImageFormat {
     fn from_u32(val: u32) -> Option<Self> {
-        match val {
-            0 => Some(ASIImageFormat::Image_RAW8),
-            1 => Some(ASIImageFormat::Image_RGB24),
-            2 => Some(ASIImageFormat::Image_RAW16),
+        match val as i32 {
+            ASI_IMG_TYPE_ASI_IMG_RAW8 => Some(ASIImageFormat::Image_RAW8),
+            ASI_IMG_TYPE_ASI_IMG_RGB24 => Some(ASIImageFormat::Image_RGB24),
+            ASI_IMG_TYPE_ASI_IMG_RAW16 => Some(ASIImageFormat::Image_RAW16),
             _ => None,
         }
     }
@@ -60,55 +63,55 @@ impl ASIImageFormat {
 #[repr(i32)]
 #[derive(Debug, PartialEq, Clone, Copy)]
 enum ASIControlType {
-    Gain = 0,
-    Exposure = 1,
-    Gamma = 2,
-    WhiteBal_R = 3,
-    WhiteBal_B = 4,
-    Offset = 5,
-    BWOvld = 6,
-    Overclock = 7,
-    Temperature = 8,
-    Flip = 9,
-    AutoExpMaxGain = 10,
-    AutoExpMaxExp = 11,
-    AutoExpTgtBrightness = 12,
-    HWBin = 13,
-    HighSpeedMode = 14,
-    CoolerPowerPercent = 15,
-    TargetTemp = 16,
-    CoolerOn = 17,
-    MonoBin = 18,
-    FanOn = 19,
-    PatternAdjust = 20,
-    AntiDewHeater = 21,
+    Gain = ASI_CONTROL_TYPE_ASI_GAIN as i32,
+    Exposure = ASI_CONTROL_TYPE_ASI_EXPOSURE as i32,
+    Gamma = ASI_CONTROL_TYPE_ASI_GAMMA as i32,
+    WhiteBal_R = ASI_CONTROL_TYPE_ASI_WB_R as i32,
+    WhiteBal_B = ASI_CONTROL_TYPE_ASI_WB_B as i32,
+    Offset = ASI_CONTROL_TYPE_ASI_OFFSET as i32,
+    BWOvld = ASI_CONTROL_TYPE_ASI_BANDWIDTHOVERLOAD as i32,
+    Overclock = ASI_CONTROL_TYPE_ASI_OVERCLOCK as i32,
+    Temperature = ASI_CONTROL_TYPE_ASI_TEMPERATURE as i32,
+    Flip = ASI_CONTROL_TYPE_ASI_FLIP as i32,
+    AutoExpMaxGain = ASI_CONTROL_TYPE_ASI_AUTO_MAX_GAIN as i32,
+    AutoExpMaxExp = ASI_CONTROL_TYPE_ASI_AUTO_MAX_EXP as i32,
+    AutoExpTgtBrightness = ASI_CONTROL_TYPE_ASI_AUTO_TARGET_BRIGHTNESS as i32,
+    HWBin = ASI_CONTROL_TYPE_ASI_HARDWARE_BIN as i32,
+    HighSpeedMode = ASI_CONTROL_TYPE_ASI_HIGH_SPEED_MODE as i32,
+    CoolerPowerPercent = ASI_CONTROL_TYPE_ASI_COOLER_POWER_PERC as i32,
+    TargetTemp = ASI_CONTROL_TYPE_ASI_TARGET_TEMP as i32,
+    CoolerOn = ASI_CONTROL_TYPE_ASI_COOLER_ON as i32,
+    MonoBin = ASI_CONTROL_TYPE_ASI_MONO_BIN as i32,
+    FanOn = ASI_CONTROL_TYPE_ASI_FAN_ON as i32,
+    PatternAdjust = ASI_CONTROL_TYPE_ASI_PATTERN_ADJUST as i32,
+    AntiDewHeater = ASI_CONTROL_TYPE_ASI_ANTI_DEW_HEATER as i32,
 }
 
 impl ASIControlType {
     fn from_u32(val: u32) -> Option<Self> {
         match val {
-            0 => Some(ASIControlType::Gain),
-            1 => Some(ASIControlType::Exposure),
-            2 => Some(ASIControlType::Gamma),
-            3 => Some(ASIControlType::WhiteBal_R),
-            4 => Some(ASIControlType::WhiteBal_B),
-            5 => Some(ASIControlType::Offset),
-            6 => Some(ASIControlType::BWOvld),
-            7 => Some(ASIControlType::Overclock),
-            8 => Some(ASIControlType::Temperature),
-            9 => Some(ASIControlType::Flip),
-            10 => Some(ASIControlType::AutoExpMaxGain),
-            11 => Some(ASIControlType::AutoExpMaxExp),
-            12 => Some(ASIControlType::AutoExpTgtBrightness),
-            13 => Some(ASIControlType::HWBin),
-            14 => Some(ASIControlType::HighSpeedMode),
-            15 => Some(ASIControlType::CoolerPowerPercent),
-            16 => Some(ASIControlType::TargetTemp),
-            17 => Some(ASIControlType::CoolerOn),
-            18 => Some(ASIControlType::MonoBin),
-            19 => Some(ASIControlType::FanOn),
-            20 => Some(ASIControlType::PatternAdjust),
-            21 => Some(ASIControlType::AntiDewHeater),
+            ASI_CONTROL_TYPE_ASI_GAIN => Some(ASIControlType::Gain),
+            ASI_CONTROL_TYPE_ASI_EXPOSURE => Some(ASIControlType::Exposure),
+            ASI_CONTROL_TYPE_ASI_GAMMA => Some(ASIControlType::Gamma),
+            ASI_CONTROL_TYPE_ASI_WB_R => Some(ASIControlType::WhiteBal_R),
+            ASI_CONTROL_TYPE_ASI_WB_B => Some(ASIControlType::WhiteBal_B),
+            ASI_CONTROL_TYPE_ASI_OFFSET => Some(ASIControlType::Offset),
+            ASI_CONTROL_TYPE_ASI_BANDWIDTHOVERLOAD => Some(ASIControlType::BWOvld),
+            ASI_CONTROL_TYPE_ASI_OVERCLOCK => Some(ASIControlType::Overclock),
+            ASI_CONTROL_TYPE_ASI_TEMPERATURE => Some(ASIControlType::Temperature),
+            ASI_CONTROL_TYPE_ASI_FLIP => Some(ASIControlType::Flip),
+            ASI_CONTROL_TYPE_ASI_AUTO_MAX_GAIN => Some(ASIControlType::AutoExpMaxGain),
+            ASI_CONTROL_TYPE_ASI_AUTO_MAX_EXP => Some(ASIControlType::AutoExpMaxExp),
+            ASI_CONTROL_TYPE_ASI_AUTO_TARGET_BRIGHTNESS => Some(ASIControlType::AutoExpTgtBrightness),
+            ASI_CONTROL_TYPE_ASI_HARDWARE_BIN => Some(ASIControlType::HWBin),
+            ASI_CONTROL_TYPE_ASI_HIGH_SPEED_MODE => Some(ASIControlType::HighSpeedMode),
+            ASI_CONTROL_TYPE_ASI_COOLER_POWER_PERC => Some(ASIControlType::CoolerPowerPercent),
+            ASI_CONTROL_TYPE_ASI_TARGET_TEMP => Some(ASIControlType::TargetTemp),
+            ASI_CONTROL_TYPE_ASI_COOLER_ON => Some(ASIControlType::CoolerOn),
+            ASI_CONTROL_TYPE_ASI_MONO_BIN => Some(ASIControlType::MonoBin),
+            ASI_CONTROL_TYPE_ASI_FAN_ON => Some(ASIControlType::FanOn),
+            ASI_CONTROL_TYPE_ASI_PATTERN_ADJUST => Some(ASIControlType::PatternAdjust),
+            ASI_CONTROL_TYPE_ASI_ANTI_DEW_HEATER => Some(ASIControlType::AntiDewHeater),
             _ => None,
         }
     }
@@ -167,21 +170,22 @@ impl Display for ASICameraProps {
 
 impl ASICameraProps {}
 
+#[repr(u32)]
 #[derive(Clone, PartialEq, Copy)]
 enum ASIExposureStatus {
-    Idle = 0,
-    Working = 1,
-    Success = 2,
-    Failed = 3,
+    Idle = ASI_EXPOSURE_STATUS_ASI_EXP_IDLE,
+    Working = ASI_EXPOSURE_STATUS_ASI_EXP_WORKING,
+    Success = ASI_EXPOSURE_STATUS_ASI_EXP_SUCCESS,
+    Failed = ASI_EXPOSURE_STATUS_ASI_EXP_FAILED,
 }
 
 impl ASIExposureStatus {
     fn from_u32(val: u32) -> Result<Self, Error> {
         match val {
-            0 => Ok(ASIExposureStatus::Idle),
-            1 => Ok(ASIExposureStatus::Working),
-            2 => Ok(ASIExposureStatus::Success),
-            3 => Ok(ASIExposureStatus::Failed),
+            ASI_EXPOSURE_STATUS_ASI_EXP_IDLE => Ok(ASIExposureStatus::Idle),
+            ASI_EXPOSURE_STATUS_ASI_EXP_WORKING => Ok(ASIExposureStatus::Working),
+            ASI_EXPOSURE_STATUS_ASI_EXP_SUCCESS => Ok(ASIExposureStatus::Success),
+            ASI_EXPOSURE_STATUS_ASI_EXP_FAILED => Ok(ASIExposureStatus::Failed),
             _ => Err(Error::InvalidMode(format!(
                 "Invalid exposure status: {}",
                 val
@@ -261,7 +265,7 @@ struct ASIRoiMode {
 #[derive(Clone)]
 pub struct CameraUnit_ASI {
     id: i32,
-    capturing: bool,
+    capturing: Arc<Mutex<bool>>,
     props: Box<ASICameraProps>,
     control_caps: Vec<ASIControlCaps>,
     gain_min: i64,
@@ -454,6 +458,19 @@ impl CameraUnit_ASI {
         Ok(())
     }
 
+    fn get_start_pos(&self) -> Result<(i32, i32), Error>
+    {
+        let mut x: i32 = 0;
+        let mut y: i32 = 0;
+        let res = unsafe { ASIGetStartPos(self.id, &mut x, &mut y) };
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            return Err(Error::InvalidId(self.id))
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            return Err(Error::CameraClosed)
+        }
+        Ok((x, y))
+    }
+
     pub fn num_cameras() -> i32 {
         unsafe { ASIGetNumOfConnectedCameras() }
     }
@@ -568,7 +585,7 @@ impl CameraUnit_ASI {
 
             let cobj = CameraUnit_ASI {
                 id: id,
-                capturing: false,
+                capturing: Arc::new(Mutex::new(false)),
                 props: Box::new(prop.clone()),
                 control_caps: ccaps,
                 gain_min: gain_min,
@@ -599,6 +616,7 @@ impl CameraUnit_ASI {
                 },
             };
 
+            cobj.set_start_pos(0, 0)?;
             cobj.set_roi_format(&ASIRoiMode {
                 width: cobj.roi.x_max - cobj.roi.x_min,
                 height: cobj.roi.y_max - cobj.roi.y_min,
@@ -702,7 +720,7 @@ impl CameraUnit_ASI {
 
         let cobj = CameraUnit_ASI {
             id: prop.id,
-            capturing: false,
+            capturing: Arc::new(Mutex::new(false)),
             props: Box::new(prop.clone()),
             control_caps: ccaps,
             gain_min: gain_min,
@@ -792,13 +810,25 @@ impl CameraUnit_ASI {
         }
         ASIExposureStatus::from_u32(stat)
     }
+
+    fn sys_cancel_capture(&self) -> Result<(), Error> {
+        let res = unsafe { ASIStopExposure(self.id) };
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            return Err(Error::InvalidId(self.id));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            return Err(Error::CameraClosed);
+        }
+        Ok(())
+    }
 }
 
 impl Drop for CameraUnit_ASI {
     fn drop(&mut self) {
-        if self.capturing {
-            if let Err(var) = self.cancel_capture() {
-                warn!("Error while cancelling capture: {}", var);
+        {
+            if *self.capturing.lock().unwrap() {
+                if let Err(var) = self.cancel_capture() {
+                    warn!("Error while cancelling capture: {}", var);
+                }
             }
         }
         let res = unsafe { ASICloseCamera(self.id) };
@@ -821,22 +851,18 @@ impl CameraUnit for CameraUnit_ASI {
         Some(String::from_utf8_lossy(&self.props.uuid).to_string())
     }
 
-    fn cancel_capture(&mut self) -> Result<(), Error> {
-        if !self.capturing {
+    fn cancel_capture(&self) -> Result<(), Error> {
+        let mut capturing = self.capturing.lock().unwrap();
+        if *capturing {
             return Ok(());
         }
-        let res = unsafe { ASIStopExposure(self.id) };
-        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-            return Err(Error::InvalidId(self.id));
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-            return Err(Error::CameraClosed);
-        }
-        self.capturing = false;
+        self.sys_cancel_capture()?;
+        *capturing = false;
         Ok(())
     }
 
     fn is_capturing(&self) -> bool {
-        self.capturing
+        *self.capturing.lock().unwrap()
     }
 
     fn camera_ready(&self) -> bool {
@@ -875,37 +901,42 @@ impl CameraUnit for CameraUnit_ASI {
         Ok(self.gain_max)
     }
 
-    fn capture_image(&mut self) -> Result<ImageData, Error> {
-        let stat = self.get_exposure_status()?;
-        if stat == ASIExposureStatus::Working {
-            self.capturing = true;
-            return Err(Error::ExposureInProgress);
-        } else if stat == ASIExposureStatus::Failed {
-            return Err(Error::ExposureFailed("Unknown".to_owned()));
-        }
-        self.capturing = false;
-        let roi = self.get_roi_format()?;
-        self.capturing = true;
-        let start_time = SystemTime::now();
-        let res = unsafe {
-            ASIStartExposure(
-                self.id,
-                if self.is_dark_frame {
-                    ASI_BOOL_ASI_TRUE as i32
-                } else {
-                    ASI_BOOL_ASI_TRUE as i32
-                },
-            )
-        };
-        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-            self.capturing = false;
-            return Err(Error::InvalidId(self.id));
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-            self.capturing = false;
-            return Err(Error::CameraClosed);
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_VIDEO_MODE_ACTIVE as i32 {
-            self.capturing = true;
-            return Err(Error::GeneralError("Video mode active".to_owned()));
+    fn capture_image(&self) -> Result<ImageData, Error> {
+        let start_time: SystemTime;
+        let roi: ASIRoiMode;
+        {
+            let mut capturing = self.capturing.lock().unwrap();
+            let stat = self.get_exposure_status()?;
+            if stat == ASIExposureStatus::Working {
+                *capturing = true;
+                return Err(Error::ExposureInProgress);
+            } else if stat == ASIExposureStatus::Failed {
+                return Err(Error::ExposureFailed("Unknown".to_owned()));
+            }
+            *capturing = false;
+            roi = self.get_roi_format()?;
+            *capturing = true;
+            start_time = SystemTime::now();
+            let res = unsafe {
+                ASIStartExposure(
+                    self.id,
+                    if self.is_dark_frame {
+                        ASI_BOOL_ASI_TRUE as i32
+                    } else {
+                        ASI_BOOL_ASI_TRUE as i32
+                    },
+                )
+            };
+            if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+                *capturing = false;
+                return Err(Error::InvalidId(self.id));
+            } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+                *capturing = false;
+                return Err(Error::CameraClosed);
+            } else if res == ASI_ERROR_CODE_ASI_ERROR_VIDEO_MODE_ACTIVE as i32 {
+                *capturing = true;
+                return Err(Error::GeneralError("Video mode active".to_owned()));
+            }
         }
         let mut stat: ASIExposureStatus;
         if self.exposure < Duration::from_millis(16) {
@@ -933,16 +964,18 @@ impl CameraUnit for CameraUnit_ASI {
                 sleep(Duration::from_secs(1));
             }
         }
+        let mut capturing = self.capturing.lock().unwrap(); // we are not dropping this until we return, so no problem reading exposure or roi
         if stat == ASIExposureStatus::Failed {
-            self.capturing = false;
+            *capturing = false;
             return Err(Error::ExposureFailed("Unknown".to_owned()));
         } else if stat == ASIExposureStatus::Idle {
-            self.capturing = false;
+            *capturing = false;
             return Err(Error::ExposureFailed(
                 "Successful exposure but no available data".to_owned(),
             ));
         } else if stat == ASIExposureStatus::Working {
-            self.cancel_capture()?;
+            self.sys_cancel_capture()?;
+            *capturing = false;
             return Err(Error::ExposureFailed("Exposure timed out".to_owned()));
         } else {
             let img = match roi.fmt {
@@ -956,15 +989,13 @@ impl CameraUnit for CameraUnit_ASI {
                         )
                     };
                     if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-                        self.capturing = false;
                         return Err(Error::InvalidId(self.id));
                     } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-                        self.capturing = false;
                         return Err(Error::CameraClosed);
                     } else if res == ASI_ERROR_CODE_ASI_ERROR_TIMEOUT as i32 {
-                        self.capturing = false;
                         return Err(Error::TimedOut);
                     }
+                    *capturing = false; // whether the call succeeds or fails, we are not capturing anymore
                     let mut img =
                         DynamicImage::new_luma8(roi.width as u32, roi.height as u32).into_luma8();
                     img.copy_from_slice(&data);
@@ -980,15 +1011,13 @@ impl CameraUnit for CameraUnit_ASI {
                         )
                     };
                     if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-                        self.capturing = false;
                         return Err(Error::InvalidId(self.id));
                     } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-                        self.capturing = false;
                         return Err(Error::CameraClosed);
                     } else if res == ASI_ERROR_CODE_ASI_ERROR_TIMEOUT as i32 {
-                        self.capturing = false;
                         return Err(Error::TimedOut);
                     }
+                    *capturing = false; // whether the call succeeds or fails, we are not capturing anymore
                     let mut img =
                         DynamicImage::new_luma16(roi.width as u32, roi.height as u32).into_luma16();
                     img.copy_from_slice(&data);
@@ -1004,35 +1033,35 @@ impl CameraUnit for CameraUnit_ASI {
                         )
                     };
                     if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-                        self.capturing = false;
                         return Err(Error::InvalidId(self.id));
                     } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-                        self.capturing = false;
                         return Err(Error::CameraClosed);
                     } else if res == ASI_ERROR_CODE_ASI_ERROR_TIMEOUT as i32 {
-                        self.capturing = false;
                         return Err(Error::TimedOut);
                     }
+                    *capturing = false; // whether the call succeeds or fails, we are not capturing anymore
                     let mut img =
                         DynamicImage::new_rgb8(roi.width as u32, roi.height as u32).into_rgb8();
                     img.copy_from_slice(&data);
+
                     DynamicImage::from(img)
                 }
             };
-            let meta = ImageMetaData::full_builder(
+            let mut meta = ImageMetaData::full_builder(
                 self.get_bin_x() as u32,
                 self.get_bin_y() as u32,
                 self.roi.y_min as u32,
                 self.roi.x_min as u32,
-                self.get_temperature().unwrap(),
+                self.get_temperature().unwrap_or(-273.0),
                 self.exposure,
                 start_time,
                 self.camera_name(),
                 self.get_gain_raw(),
                 self.get_offset() as i64,
-                self.get_min_gain().unwrap() as i32,
-                self.get_max_gain().unwrap() as i32,
+                self.get_min_gain().unwrap_or(0) as i32,
+                self.get_max_gain().unwrap_or(0) as i32,
             );
+            meta.add_extended_attrib("DARK_FRAME", &format!("{}", if !self.get_shutter_open().unwrap_or(false) {"True"} else {"False"}));
 
             return Ok(ImageData::new(img, meta));
         }
@@ -1118,7 +1147,8 @@ impl CameraUnit for CameraUnit_ASI {
                 self.exp_max.as_secs_f32()
             )));
         }
-        if self.capturing {
+        let capturing = self.capturing.lock().unwrap();
+        if *capturing {
             return Err(Error::ExposureInProgress);
         }
         self.set_control_value(
@@ -1137,13 +1167,10 @@ impl CameraUnit for CameraUnit_ASI {
                 gain
             )));
         }
-        if self.capturing {
-            return Err(Error::ExposureInProgress);
-        }
         let gain =
             (gain * (self.gain_max as f32 - self.gain_min as f32) + self.gain_min as f32) as c_long;
-        self.set_control_value(ASIControlType::Gain, gain, false)?;
-        Ok(self.get_gain())
+        let gain = self.set_gain_raw(gain)?;
+        Ok((gain as f32 - self.gain_min as f32) / (self.gain_max as f32 - self.gain_min as f32))
     }
 
     fn set_gain_raw(&mut self, gain: i64) -> Result<i64, Error> {
@@ -1158,12 +1185,16 @@ impl CameraUnit for CameraUnit_ASI {
                 gain, self.gain_max
             )));
         }
+        let capturing = self.capturing.lock().unwrap();
+        if *capturing {
+            return Err(Error::ExposureInProgress);
+        }
         self.set_control_value(ASIControlType::Gain, gain as c_long, false)?;
-        Ok(gain)
+        Ok(self.get_gain_raw())
     }
 
     fn set_roi(&mut self, roi: &ROI) -> Result<&ROI, Error> {
-        if roi.bin_x != roi.bin_y{
+        if roi.bin_x != roi.bin_y {
             return Err(Error::InvalidValue(
                 "Bin X and Bin Y must be equal".to_owned(),
             ));
@@ -1186,12 +1217,10 @@ impl CameraUnit for CameraUnit_ASI {
         let mut roi = *roi;
         roi.bin_y = roi.bin_x;
 
-        if roi.x_max <= 0
-        {
+        if roi.x_max <= 0 {
             roi.x_max = self.props.max_width as i32;
         }
-        if roi.y_max <= 0
-        {
+        if roi.y_max <= 0 {
             roi.y_max = self.props.max_height as i32;
         }
 
@@ -1200,12 +1229,29 @@ impl CameraUnit for CameraUnit_ASI {
         roi.y_min /= roi.bin_y;
         roi.y_max /= roi.bin_y;
 
-        let width = roi.x_max - roi.x_min;
-        let height = roi.y_max - roi.y_min;
+        let mut width = roi.x_max - roi.x_min;
+        width -= width % 8;
+        let mut height = roi.y_max - roi.y_min;
+        height -= height % 2;
+
+        roi.x_max = roi.x_min + width;
+        roi.y_max = roi.y_min + height;
 
         if width < 0 || height < 0 {
             return Err(Error::InvalidValue(
                 "ROI width and height must be positive".to_owned(),
+            ));
+        }
+
+        if roi.x_max > self.props.max_width as i32 / roi.bin_x {
+            return Err(Error::OutOfBounds(
+                "ROI x_max is greater than max width".to_owned(),
+            ));
+        }
+
+        if roi.y_max > self.props.max_height as i32 / roi.bin_y {
+            return Err(Error::OutOfBounds(
+                "ROI y_max is greater than max height".to_owned(),
             ));
         }
 
@@ -1217,10 +1263,19 @@ impl CameraUnit for CameraUnit_ASI {
             }
         }
 
+        let capturing = self.capturing.lock().unwrap();
+        if *capturing {
+            return Err(Error::ExposureInProgress);
+        }
+
         let mut roi_md = self.get_roi_format()?;
+        let (xs, ys) = self.get_start_pos()?;
         let roi_md_old = roi_md.clone();
 
-        info!("Current ROI: {} x {}, Bin: {}, Format: {:#?}", roi_md.width, roi_md.height, roi_md.bin, roi_md.fmt);
+        info!(
+            "Current ROI: {} x {}, Bin: {}, Format: {:#?}",
+            roi_md.width, roi_md.height, roi_md.bin, roi_md.fmt
+        );
         info!("New ROI: {} x {}, Bin: {}", width, height, roi.bin_x);
 
         roi_md.width = width;
@@ -1237,6 +1292,10 @@ impl CameraUnit for CameraUnit_ASI {
     }
 
     fn set_shutter_open(&mut self, open: bool) -> Result<bool, Error> {
+        let capturing = self.capturing.lock().unwrap();
+        if *capturing {
+            return Err(Error::ExposureInProgress);
+        }
         if !self.props.mechanical_shutter {
             return Err(Error::InvalidControlType(
                 "Camera does not have mechanical shutter".to_owned(),

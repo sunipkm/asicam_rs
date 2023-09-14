@@ -35,11 +35,11 @@ pub trait CameraUnit {
         None
     }
 
-    fn capture_image(&mut self) -> Result<ImageData, Error> {
+    fn capture_image(&self) -> Result<ImageData, Error> {
         Err(Error::GeneralError("Not implemented".to_string()))
     }
 
-    fn cancel_capture(&mut self) -> Result<(), Error> {
+    fn cancel_capture(&self) -> Result<(), Error> {
         Err(Error::GeneralError("Not implemented".to_string()))
     }
 

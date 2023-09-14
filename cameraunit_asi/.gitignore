@@ -3,4 +3,4 @@
 **/*.fit*
 **/*.png
 **/.DS_Store
-src/asicamera2_bindings.rs
+src/asicamera_2/*
