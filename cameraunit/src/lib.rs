@@ -2,7 +2,7 @@ use imagedata::ImageData;
 use std::any::Any;
 use std::{fmt::Display, time::Duration};
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ROI {
     pub x_min: i32,
     pub x_max: i32,
@@ -35,11 +35,11 @@ pub trait CameraUnit {
         None
     }
 
-    fn capture_image(&self) -> Result<ImageData, Error> {
+    fn capture_image(&mut self) -> Result<ImageData, Error> {
         Err(Error::GeneralError("Not implemented".to_string()))
     }
 
-    fn cancel_capture(&self) -> Result<(), Error> {
+    fn cancel_capture(&mut self) -> Result<(), Error> {
         Err(Error::GeneralError("Not implemented".to_string()))
     }
 
@@ -59,7 +59,7 @@ pub trait CameraUnit {
         "Unknown"
     }
 
-    fn set_exposure(&self, exposure: Duration) -> Result<Duration, Error> {
+    fn set_exposure(&mut self, _exposure: Duration) -> Result<Duration, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
 
@@ -75,11 +75,11 @@ pub trait CameraUnit {
         0
     }
 
-    fn set_gain(&self, gain: f32) -> Result<f32, Error> {
+    fn set_gain(&mut self, _gain: f32) -> Result<f32, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn set_gain_raw(&self, gain: i64) -> Result<i64, Error> {
+    fn set_gain_raw(&mut self, _gain: i64) -> Result<i64, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
 
@@ -87,7 +87,7 @@ pub trait CameraUnit {
         0
     }
 
-    fn set_offset(&self, offset: i32) -> Result<i32, Error> {
+    fn set_offset(&mut self, _offset: i32) -> Result<i32, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
 
@@ -107,7 +107,7 @@ pub trait CameraUnit {
         Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn set_shutter_open(&self, open: bool) -> Result<bool, Error> {
+    fn set_shutter_open(&mut self, _open: bool) -> Result<bool, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
 
@@ -115,7 +115,7 @@ pub trait CameraUnit {
         Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn set_temperature(&self, temperature: f32) -> Result<f32, Error> {
+    fn set_temperature(&self, _temperature: f32) -> Result<f32, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
 
@@ -127,11 +127,11 @@ pub trait CameraUnit {
         None
     }
 
-    fn set_cooler_power(&self, power: f32) -> Result<f32, Error> {
+    fn set_cooler_power(&mut self, _power: f32) -> Result<f32, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn set_roi(&self, roi: &ROI) -> Result<&ROI, Error> {
+    fn set_roi(&mut self, _roi: &ROI) -> Result<&ROI, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
 
@@ -191,6 +191,8 @@ pub enum Error {
     GeneralError(String),
     InvalidMode(String),
     ExposureFailed(String),
+    InvalidValue(String),
+    OutOfBounds(String),
 }
 
 impl Display for Error {
@@ -214,6 +216,8 @@ impl Display for Error {
             Error::GeneralError(msg) => msg.clone(),
             Error::InvalidMode(msg) => msg.clone(),
             Error::ExposureFailed(msg) => msg.clone(),
+            Error::InvalidValue(msg) => msg.clone(),
+            Error::OutOfBounds(msg) => msg.clone(),
         };
         write!(f, "{}", msg)
     }

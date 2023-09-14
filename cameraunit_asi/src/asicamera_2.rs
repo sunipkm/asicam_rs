@@ -15,10 +15,10 @@ use std::{
 use cameraunit::{CameraUnit, Error, ROI};
 use image::DynamicImage;
 use imagedata::{ImageData, ImageMetaData};
-use log::warn;
+use log::{warn, info};
 
 #[repr(u32)]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum ASIBayerPattern {
     Bayer_RG = 0,
     Bayer_BG = 1,
@@ -39,7 +39,7 @@ impl ASIBayerPattern {
 }
 
 #[repr(i32)]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum ASIImageFormat {
     Image_RAW8 = 0,
     Image_RGB24 = 1,
@@ -58,7 +58,7 @@ impl ASIImageFormat {
 }
 
 #[repr(i32)]
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum ASIControlType {
     Gain = 0,
     Exposure = 1,
@@ -167,7 +167,7 @@ impl Display for ASICameraProps {
 
 impl ASICameraProps {}
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Copy)]
 enum ASIExposureStatus {
     Idle = 0,
     Working = 1,
@@ -400,6 +400,60 @@ impl CameraUnit_ASI {
         Ok((val, auto_val == ASI_BOOL_ASI_TRUE as i32))
     }
 
+    fn set_control_value(
+        &self,
+        ctyp: ASIControlType,
+        val: c_long,
+        auto: bool,
+    ) -> Result<(), Error> {
+        let res = unsafe {
+            ASISetControlValue(
+                self.id,
+                ctyp as i32,
+                val,
+                if auto {
+                    ASI_BOOL_ASI_TRUE as i32
+                } else {
+                    ASI_BOOL_ASI_FALSE as i32
+                },
+            )
+        };
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            return Err(Error::InvalidId(self.id));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_CONTROL_TYPE as i32 {
+            return Err(Error::InvalidControlType(format!("{:#?}", ctyp)));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            return Err(Error::CameraClosed);
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_GENERAL_ERROR as i32 {
+            return Err(Error::Message(format!(
+                "Could not set control value for type {:#?}",
+                ctyp
+            )));
+        }
+        Ok(())
+    }
+
+    fn set_start_pos(&self, x: i32, y: i32) -> Result<(), Error> {
+        if x < 0 || y < 0 {
+            return Err(Error::InvalidValue(format!(
+                "Invalid start position: {}, {}",
+                x, y
+            )));
+        }
+        let res = unsafe { ASISetStartPos(self.id, x, y) };
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            return Err(Error::InvalidId(self.id));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            return Err(Error::CameraClosed);
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_OUTOF_BOUNDARY as i32 {
+            return Err(Error::OutOfBounds(format!(
+                "Could not set start position to {}, {}",
+                x, y
+            )));
+        }
+        Ok(())
+    }
+
     pub fn num_cameras() -> i32 {
         unsafe { ASIGetNumOfConnectedCameras() }
     }
@@ -515,7 +569,7 @@ impl CameraUnit_ASI {
             let cobj = CameraUnit_ASI {
                 id: id,
                 capturing: false,
-                props: Box::new(prop),
+                props: Box::new(prop.clone()),
                 control_caps: ccaps,
                 gain_min: gain_min,
                 gain_max: gain_max,
@@ -649,7 +703,7 @@ impl CameraUnit_ASI {
         let cobj = CameraUnit_ASI {
             id: prop.id,
             capturing: false,
-            props: Box::new(prop),
+            props: Box::new(prop.clone()),
             control_caps: ccaps,
             gain_min: gain_min,
             gain_max: gain_max,
@@ -767,7 +821,7 @@ impl CameraUnit for CameraUnit_ASI {
         Some(String::from_utf8_lossy(&self.props.uuid).to_string())
     }
 
-    fn cancel_capture(&self) -> Result<(), Error> {
+    fn cancel_capture(&mut self) -> Result<(), Error> {
         if !self.capturing {
             return Ok(());
         }
@@ -777,6 +831,7 @@ impl CameraUnit for CameraUnit_ASI {
         } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
             return Err(Error::CameraClosed);
         }
+        self.capturing = false;
         Ok(())
     }
 
@@ -820,7 +875,7 @@ impl CameraUnit for CameraUnit_ASI {
         Ok(self.gain_max)
     }
 
-    fn capture_image(&self) -> Result<ImageData, Error> {
+    fn capture_image(&mut self) -> Result<ImageData, Error> {
         let stat = self.get_exposure_status()?;
         if stat == ASIExposureStatus::Working {
             self.capturing = true;
@@ -1031,25 +1086,185 @@ impl CameraUnit for CameraUnit_ASI {
         }
         0
     }
-    fn get_last_image(&self) -> Option<ImageData> {}
 
-    fn get_shutter_open(&self) -> Result<bool, Error> {}
+    fn get_shutter_open(&self) -> Result<bool, Error> {
+        if !self.props.mechanical_shutter {
+            return Err(Error::InvalidControlType(
+                "Camera does not have mechanical shutter".to_owned(),
+            ));
+        }
+        Ok(!self.is_dark_frame)
+    }
 
-    fn get_temperature(&self) -> Option<f32> {}
+    fn get_temperature(&self) -> Option<f32> {
+        let res = self.get_control_value(ASIControlType::Temperature);
+        if let Ok((val, _)) = res {
+            return Some(val as f32 / 10.0);
+        }
+        None
+    }
 
-    fn set_cooler_power(&self, power: f32) -> Result<f32, Error> {}
+    fn set_exposure(&mut self, exposure: Duration) -> Result<Duration, Error> {
+        if exposure < self.exp_min {
+            return Err(Error::InvalidValue(format!(
+                "Exposure {} us is below minimum of {} us",
+                exposure.as_micros(),
+                self.exp_min.as_micros()
+            )));
+        } else if exposure > self.exp_max {
+            return Err(Error::InvalidValue(format!(
+                "Exposure {} is above maximum of {}",
+                exposure.as_secs_f32(),
+                self.exp_max.as_secs_f32()
+            )));
+        }
+        if self.capturing {
+            return Err(Error::ExposureInProgress);
+        }
+        self.set_control_value(
+            ASIControlType::Exposure,
+            exposure.as_micros() as c_long,
+            false,
+        )?;
+        self.exposure = exposure;
+        Ok(self.exposure)
+    }
 
-    fn set_exposure(&self, exposure: Duration) -> Result<Duration, Error> {}
+    fn set_gain(&mut self, gain: f32) -> Result<f32, Error> {
+        if gain < 0.0 || gain > 100.0 {
+            return Err(Error::InvalidValue(format!(
+                "Gain {} is outside of range 0-100",
+                gain
+            )));
+        }
+        if self.capturing {
+            return Err(Error::ExposureInProgress);
+        }
+        let gain =
+            (gain * (self.gain_max as f32 - self.gain_min as f32) + self.gain_min as f32) as c_long;
+        self.set_control_value(ASIControlType::Gain, gain, false)?;
+        Ok(self.get_gain())
+    }
 
-    fn set_gain(&self, gain: f32) -> Result<f32, Error> {}
+    fn set_gain_raw(&mut self, gain: i64) -> Result<i64, Error> {
+        if gain < self.gain_min {
+            return Err(Error::InvalidValue(format!(
+                "Gain {} is below minimum of {}",
+                gain, self.gain_min
+            )));
+        } else if gain > self.gain_max {
+            return Err(Error::InvalidValue(format!(
+                "Gain {} is above maximum of {}",
+                gain, self.gain_max
+            )));
+        }
+        self.set_control_value(ASIControlType::Gain, gain as c_long, false)?;
+        Ok(gain)
+    }
 
-    fn set_gain_raw(&self, gain: i64) -> Result<i64, Error> {}
+    fn set_roi(&mut self, roi: &ROI) -> Result<&ROI, Error> {
+        if roi.bin_x != roi.bin_y{
+            return Err(Error::InvalidValue(
+                "Bin X and Bin Y must be equal".to_owned(),
+            ));
+        }
 
-    fn set_offset(&self, offset: i32) -> Result<i32, Error> {}
+        if roi.bin_x < 1 {
+            return Err(Error::InvalidValue(format!(
+                "Bin {} is below minimum of 1",
+                roi.bin_x
+            )));
+        }
 
-    fn set_roi(&self, roi: &ROI) -> Result<&ROI, Error> {}
+        if !self.props.supported_bins.contains(&roi.bin_x) {
+            return Err(Error::InvalidValue(format!(
+                "Bin {} is not supported by camera",
+                roi.bin_x
+            )));
+        }
 
-    fn set_shutter_open(&self, open: bool) -> Result<bool, Error> {}
+        let mut roi = *roi;
+        roi.bin_y = roi.bin_x;
 
-    fn set_temperature(&self, temperature: f32) -> Result<f32, Error> {}
+        if roi.x_max <= 0
+        {
+            roi.x_max = self.props.max_width as i32;
+        }
+        if roi.y_max <= 0
+        {
+            roi.y_max = self.props.max_height as i32;
+        }
+
+        roi.x_min /= roi.bin_x;
+        roi.x_max /= roi.bin_x;
+        roi.y_min /= roi.bin_y;
+        roi.y_max /= roi.bin_y;
+
+        let width = roi.x_max - roi.x_min;
+        let height = roi.y_max - roi.y_min;
+
+        if width < 0 || height < 0 {
+            return Err(Error::InvalidValue(
+                "ROI width and height must be positive".to_owned(),
+            ));
+        }
+
+        if !self.props.is_usb3_camera && self.camera_name().contains("ASI120") {
+            if width * height % 1024 != 0 {
+                return Err(Error::InvalidValue(
+                    "ASI120 cameras require ROI width * height to be a multiple of 1024".to_owned(),
+                ));
+            }
+        }
+
+        let mut roi_md = self.get_roi_format()?;
+        let roi_md_old = roi_md.clone();
+
+        info!("Current ROI: {} x {}, Bin: {}, Format: {:#?}", roi_md.width, roi_md.height, roi_md.bin, roi_md.fmt);
+        info!("New ROI: {} x {}, Bin: {}", width, height, roi.bin_x);
+
+        roi_md.width = width;
+        roi_md.height = height;
+        roi_md.bin = roi.bin_x;
+
+        self.set_roi_format(&roi_md)?;
+
+        if self.set_start_pos(roi.x_min, roi.y_min).is_err() {
+            self.set_roi_format(&roi_md_old)?;
+        }
+        self.roi = roi;
+        Ok(&self.roi)
+    }
+
+    fn set_shutter_open(&mut self, open: bool) -> Result<bool, Error> {
+        if !self.props.mechanical_shutter {
+            return Err(Error::InvalidControlType(
+                "Camera does not have mechanical shutter".to_owned(),
+            ));
+        }
+        self.is_dark_frame = !open;
+        Ok(open)
+    }
+
+    fn set_temperature(&self, temperature: f32) -> Result<f32, Error> {
+        if !self.props.is_cooler_cam {
+            return Err(Error::InvalidControlType(
+                "Camera does not have cooler".to_owned(),
+            ));
+        }
+        if temperature < -80.0 {
+            return Err(Error::InvalidValue(format!(
+                "Temperature {} is below minimum of -80",
+                temperature
+            )));
+        } else if temperature > 20.0 {
+            return Err(Error::InvalidValue(format!(
+                "Temperature {} is above maximum of 20",
+                temperature
+            )));
+        }
+        let temperature = temperature as c_long;
+        self.set_control_value(ASIControlType::TargetTemp, temperature, false)?;
+        Ok(temperature as f32)
+    }
 }
