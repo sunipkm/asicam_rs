@@ -346,131 +346,6 @@ fn get_controlcap_minmax(caps: &Vec<ASIControlCaps>, id: ASIControlType) -> Opti
 }
 
 impl CameraUnit_ASI {
-    fn get_roi_format(&self) -> Result<ASIRoiMode, Error> {
-        let mut roi = ASIRoiMode {
-            width: 0,
-            height: 0,
-            bin: 0,
-            fmt: ASIImageFormat::Image_RAW8,
-        };
-        let mut fmt: i32 = 0;
-        let res = unsafe {
-            ASIGetROIFormat(
-                self.id,
-                &mut roi.width,
-                &mut roi.height,
-                &mut roi.bin,
-                &mut fmt,
-            )
-        };
-        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-            return Err(Error::InvalidId(self.id));
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-            return Err(Error::CameraClosed);
-        }
-        if let Some(fmt) = ASIImageFormat::from_u32(fmt as u32) {
-            roi.fmt = fmt;
-            return Ok(roi);
-        } else {
-            return Err(Error::InvalidMode(format!("Invalid image format: {}", fmt)));
-        }
-    }
-
-    fn set_roi_format(&self, roi: &ASIRoiMode) -> Result<(), Error> {
-        let res =
-            unsafe { ASISetROIFormat(self.id, roi.width, roi.height, roi.bin, roi.fmt as i32) };
-        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-            return Err(Error::InvalidId(self.id));
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-            return Err(Error::CameraClosed);
-        }
-        Ok(())
-    }
-
-    fn get_control_value(&self, ctyp: ASIControlType) -> Result<(c_long, bool), Error> {
-        let mut val: c_long = 0;
-        let mut auto_val: i32 = ASI_BOOL_ASI_FALSE as i32;
-        let res = unsafe { ASIGetControlValue(self.id, ctyp as i32, &mut val, &mut auto_val) };
-        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-            return Err(Error::InvalidId(self.id));
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_CONTROL_TYPE as i32 {
-            return Err(Error::InvalidControlType(format!(
-                "{:#?}",
-                self.control_caps[0].id
-            )));
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-            return Err(Error::CameraClosed);
-        }
-        Ok((val, auto_val == ASI_BOOL_ASI_TRUE as i32))
-    }
-
-    fn set_control_value(
-        &self,
-        ctyp: ASIControlType,
-        val: c_long,
-        auto: bool,
-    ) -> Result<(), Error> {
-        let res = unsafe {
-            ASISetControlValue(
-                self.id,
-                ctyp as i32,
-                val,
-                if auto {
-                    ASI_BOOL_ASI_TRUE as i32
-                } else {
-                    ASI_BOOL_ASI_FALSE as i32
-                },
-            )
-        };
-        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-            return Err(Error::InvalidId(self.id));
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_CONTROL_TYPE as i32 {
-            return Err(Error::InvalidControlType(format!("{:#?}", ctyp)));
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-            return Err(Error::CameraClosed);
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_GENERAL_ERROR as i32 {
-            return Err(Error::Message(format!(
-                "Could not set control value for type {:#?}",
-                ctyp
-            )));
-        }
-        Ok(())
-    }
-
-    fn set_start_pos(&self, x: i32, y: i32) -> Result<(), Error> {
-        if x < 0 || y < 0 {
-            return Err(Error::InvalidValue(format!(
-                "Invalid start position: {}, {}",
-                x, y
-            )));
-        }
-        let res = unsafe { ASISetStartPos(self.id, x, y) };
-        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-            return Err(Error::InvalidId(self.id));
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-            return Err(Error::CameraClosed);
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_OUTOF_BOUNDARY as i32 {
-            return Err(Error::OutOfBounds(format!(
-                "Could not set start position to {}, {}",
-                x, y
-            )));
-        }
-        Ok(())
-    }
-
-    fn get_start_pos(&self) -> Result<(i32, i32), Error>
-    {
-        let mut x: i32 = 0;
-        let mut y: i32 = 0;
-        let res = unsafe { ASIGetStartPos(self.id, &mut x, &mut y) };
-        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-            return Err(Error::InvalidId(self.id))
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-            return Err(Error::CameraClosed)
-        }
-        Ok((x, y))
-    }
-
     pub fn num_cameras() -> i32 {
         unsafe { ASIGetNumOfConnectedCameras() }
     }
@@ -821,6 +696,135 @@ impl CameraUnit_ASI {
         self.set_roi_format(&roi)?;
         self.image_fmt = fmt;
         Ok(())
+    }
+
+    pub fn get_props(&self) -> &ASICameraProps {
+        &self.props
+    }
+
+    fn get_roi_format(&self) -> Result<ASIRoiMode, Error> {
+        let mut roi = ASIRoiMode {
+            width: 0,
+            height: 0,
+            bin: 0,
+            fmt: ASIImageFormat::Image_RAW8,
+        };
+        let mut fmt: i32 = 0;
+        let res = unsafe {
+            ASIGetROIFormat(
+                self.id,
+                &mut roi.width,
+                &mut roi.height,
+                &mut roi.bin,
+                &mut fmt,
+            )
+        };
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            return Err(Error::InvalidId(self.id));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            return Err(Error::CameraClosed);
+        }
+        if let Some(fmt) = ASIImageFormat::from_u32(fmt as u32) {
+            roi.fmt = fmt;
+            return Ok(roi);
+        } else {
+            return Err(Error::InvalidMode(format!("Invalid image format: {}", fmt)));
+        }
+    }
+
+    fn set_roi_format(&self, roi: &ASIRoiMode) -> Result<(), Error> {
+        let res =
+            unsafe { ASISetROIFormat(self.id, roi.width, roi.height, roi.bin, roi.fmt as i32) };
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            return Err(Error::InvalidId(self.id));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            return Err(Error::CameraClosed);
+        }
+        Ok(())
+    }
+
+    fn get_control_value(&self, ctyp: ASIControlType) -> Result<(c_long, bool), Error> {
+        let mut val: c_long = 0;
+        let mut auto_val: i32 = ASI_BOOL_ASI_FALSE as i32;
+        let res = unsafe { ASIGetControlValue(self.id, ctyp as i32, &mut val, &mut auto_val) };
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            return Err(Error::InvalidId(self.id));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_CONTROL_TYPE as i32 {
+            return Err(Error::InvalidControlType(format!(
+                "{:#?}",
+                self.control_caps[0].id
+            )));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            return Err(Error::CameraClosed);
+        }
+        Ok((val, auto_val == ASI_BOOL_ASI_TRUE as i32))
+    }
+
+    fn set_control_value(
+        &self,
+        ctyp: ASIControlType,
+        val: c_long,
+        auto: bool,
+    ) -> Result<(), Error> {
+        let res = unsafe {
+            ASISetControlValue(
+                self.id,
+                ctyp as i32,
+                val,
+                if auto {
+                    ASI_BOOL_ASI_TRUE as i32
+                } else {
+                    ASI_BOOL_ASI_FALSE as i32
+                },
+            )
+        };
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            return Err(Error::InvalidId(self.id));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_CONTROL_TYPE as i32 {
+            return Err(Error::InvalidControlType(format!("{:#?}", ctyp)));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            return Err(Error::CameraClosed);
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_GENERAL_ERROR as i32 {
+            return Err(Error::Message(format!(
+                "Could not set control value for type {:#?}",
+                ctyp
+            )));
+        }
+        Ok(())
+    }
+
+    fn set_start_pos(&self, x: i32, y: i32) -> Result<(), Error> {
+        if x < 0 || y < 0 {
+            return Err(Error::InvalidValue(format!(
+                "Invalid start position: {}, {}",
+                x, y
+            )));
+        }
+        let res = unsafe { ASISetStartPos(self.id, x, y) };
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            return Err(Error::InvalidId(self.id));
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            return Err(Error::CameraClosed);
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_OUTOF_BOUNDARY as i32 {
+            return Err(Error::OutOfBounds(format!(
+                "Could not set start position to {}, {}",
+                x, y
+            )));
+        }
+        Ok(())
+    }
+
+    fn get_start_pos(&self) -> Result<(i32, i32), Error>
+    {
+        let mut x: i32 = 0;
+        let mut y: i32 = 0;
+        let res = unsafe { ASIGetStartPos(self.id, &mut x, &mut y) };
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            return Err(Error::InvalidId(self.id))
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            return Err(Error::CameraClosed)
+        }
+        Ok((x, y))
     }
 
     fn get_exposure_status(&self) -> Result<ASIExposureStatus, Error> {
