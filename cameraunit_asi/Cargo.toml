@@ -1,0 +1,16 @@
+[package]
+name = "cameraunit_asi"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cameraunit = { path = "../cameraunit" }
+image = "0.24.7"
+imagedata = { path = "../imagedata" }
+log = "0.4.20"
+
+[build-dependencies]
+bindgen = "0.68.1"
+cc = "1.0.83"

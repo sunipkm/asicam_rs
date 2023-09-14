@@ -1,7 +1,8 @@
-use std::{fmt::Display, time::Duration};
+use imagedata::ImageData;
 use std::any::Any;
-use imagedata::{ImageData, ImageMetaData};
+use std::{fmt::Display, time::Duration};
 
+#[derive(Clone)]
 pub struct ROI {
     pub x_min: i32,
     pub x_max: i32,
@@ -22,158 +23,127 @@ impl Display for ROI {
 }
 
 pub trait CameraUnit {
-    fn get_vendor(&self) -> &str
-    {
+    fn get_vendor(&self) -> &str {
         "Unknown"
     }
 
-    fn get_handle(&self) -> Option<&dyn Any>
-    {
+    fn get_handle(&self) -> Option<&dyn Any> {
         None
     }
 
-    fn get_uuid(&self) -> Option<&str>
-    {
+    fn get_uuid(&self) -> Option<String> {
         None
     }
 
-    fn capture_image(&self) -> Result<ImageData, String>
-    {
-        Err("Not implemented".to_string())
+    fn capture_image(&self) -> Result<ImageData, Error> {
+        Err(Error::GeneralError("Not implemented".to_string()))
     }
 
-    fn cancel_capture(&self) -> Result<(), String>
-    {
-        Err("Not implemented".to_string())
+    fn cancel_capture(&self) -> Result<(), Error> {
+        Err(Error::GeneralError("Not implemented".to_string()))
     }
 
-    fn is_capturing(&self) -> bool
-    {
+    fn is_capturing(&self) -> bool {
         false
     }
 
-    fn get_last_image(&self) -> Option<ImageData>
-    {
+    fn get_last_image(&self) -> Option<ImageData> {
         None
     }
 
-    fn camera_ready(&self) -> bool
-    {
+    fn camera_ready(&self) -> bool {
         false
     }
 
-    fn camera_name(&self) -> &str
-    {
+    fn camera_name(&self) -> &str {
         "Unknown"
     }
 
-    fn set_exposure(&self, exposure: Duration) -> Result<Duration, String>
-    {
-        Err("Not implemented".to_string())
+    fn set_exposure(&self, exposure: Duration) -> Result<Duration, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn get_exposure(&self) -> Duration
-    {
+    fn get_exposure(&self) -> Duration {
         Duration::from_secs(0)
     }
-    
-    fn get_gain(&self) -> f32
-    {
+
+    fn get_gain(&self) -> f32 {
         0.0
     }
 
-    fn get_gain_raw(&self) -> i64
-    {
+    fn get_gain_raw(&self) -> i64 {
         0
     }
 
-    fn set_gain(&self, gain: f32) -> Result<f32, String>
-    {
-        Err("Not implemented".to_string())
+    fn set_gain(&self, gain: f32) -> Result<f32, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn set_gain_raw(&self, gain: i64) -> Result<i64, String>
-    {
-        Err("Not implemented".to_string())
+    fn set_gain_raw(&self, gain: i64) -> Result<i64, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn get_offset(&self) -> i32
-    {
+    fn get_offset(&self) -> i32 {
         0
     }
 
-    fn set_offset(&self, offset: i32) -> Result<i32, String>
-    {
-        Err("Not implemented".to_string())
+    fn set_offset(&self, offset: i32) -> Result<i32, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn get_min_exposure(&self) -> Result<Duration, String>
-    {
-        Err("Not implemented".to_string())
+    fn get_min_exposure(&self) -> Result<Duration, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn get_max_exposure(&self) -> Result<Duration, String>
-    {
-        Err("Not implemented".to_string())
+    fn get_max_exposure(&self) -> Result<Duration, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn get_min_gain(&self) -> Result<i64, String>
-    {
-        Err("Not implemented".to_string())
+    fn get_min_gain(&self) -> Result<i64, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn get_max_gain(&self) -> Result<i64, String>
-    {
-        Err("Not implemented".to_string())
+    fn get_max_gain(&self) -> Result<i64, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn set_shutter_open(&self, open: bool) -> Result<bool, String>
-    {
-        Err("Not implemented".to_string())
+    fn set_shutter_open(&self, open: bool) -> Result<bool, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn get_shutter_open(&self) -> Result<bool, String>
-    {
-        Err("Not implemented".to_string())
+    fn get_shutter_open(&self) -> Result<bool, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn set_temperature(&self, temperature: f32) -> Result<f32, String>
-    {
-        Err("Not implemented".to_string())
+    fn set_temperature(&self, temperature: f32) -> Result<f32, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn get_temperature(&self) -> Option<f32>
-    {
+    fn get_temperature(&self) -> Option<f32> {
         None
     }
 
-    fn get_cooler_power(&self) -> Option<f32>
-    {
+    fn get_cooler_power(&self) -> Option<f32> {
         None
     }
 
-    fn set_cooler_power(&self, power: f32) -> Result<f32, String>
-    {
-        Err("Not implemented".to_string())
+    fn set_cooler_power(&self, power: f32) -> Result<f32, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn set_roi(&self, roi: ROI) -> Result<ROI, String>
-    {
-        Err("Not implemented".to_string())
+    fn set_roi(&self, roi: &ROI) -> Result<&ROI, Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn get_bin_x(&self) -> i32
-    {
+    fn get_bin_x(&self) -> i32 {
         1
     }
 
-    fn get_bin_y(&self) -> i32
-    {
+    fn get_bin_y(&self) -> i32 {
         1
     }
 
-    fn get_roi(&self) -> &ROI
-    {
+    fn get_roi(&self) -> &ROI {
         &ROI {
             x_min: 0,
             x_max: 0,
@@ -184,23 +154,67 @@ pub trait CameraUnit {
         }
     }
 
-    fn get_status(&self) -> String
-    {
+    fn get_status(&self) -> String {
         "Not implemented".to_string()
     }
 
-    fn get_ccd_width(&self) -> u32
-    {
+    fn get_ccd_width(&self) -> u32 {
         0
     }
 
-    fn get_ccd_height(&self) -> u32
-    {
+    fn get_ccd_height(&self) -> u32 {
         0
     }
 
-    fn get_pixel_size(&self) -> Option<f32>
-    {
+    fn get_pixel_size(&self) -> Option<f32> {
         None
+    }
+}
+
+#[derive(Debug)]
+pub enum Error {
+    Message(String),
+    InvalidIndex(i32),
+    InvalidId(i32),
+    InvalidControlType(String),
+    NoCamerasAvailable,
+    CameraClosed,
+    CameraRemoved,
+    InvalidPath(String),
+    InvalidFormat(String),
+    InvalidSize(usize),
+    InvalidImageType(String),
+    TimedOut,
+    InvalidSequence,
+    BufferTooSmall(usize),
+    ExposureInProgress,
+    GeneralError(String),
+    InvalidMode(String),
+    ExposureFailed(String),
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            Error::Message(msg) => msg.clone(),
+            Error::InvalidIndex(idx) => format!("Invalid index: {}", idx),
+            Error::InvalidId(id) => format!("Invalid id: {}", id),
+            Error::InvalidControlType(t) => format!("Invalid control type: {}", t),
+            Error::NoCamerasAvailable => "No cameras available".to_string(),
+            Error::CameraClosed => "Camera closed".to_string(),
+            Error::CameraRemoved => "Camera removed".to_string(),
+            Error::InvalidPath(p) => format!("Invalid path: {}", p),
+            Error::InvalidFormat(f) => format!("Invalid format: {}", f),
+            Error::InvalidSize(s) => format!("Invalid size: {}", s),
+            Error::InvalidImageType(t) => format!("Invalid image type: {}", t),
+            Error::TimedOut => "Timed out".to_string(),
+            Error::InvalidSequence => "Invalid sequence".to_string(),
+            Error::BufferTooSmall(s) => format!("Buffer too small: {}", s),
+            Error::ExposureInProgress => "Exposure in progress".to_string(),
+            Error::GeneralError(msg) => msg.clone(),
+            Error::InvalidMode(msg) => msg.clone(),
+            Error::ExposureFailed(msg) => msg.clone(),
+        };
+        write!(f, "{}", msg)
     }
 }
