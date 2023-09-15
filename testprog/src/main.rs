@@ -20,6 +20,13 @@ struct ASICamconfig {
 }
 
 fn main() {
+    let num_cameras = num_cameras();
+    println!("Found {} cameras", num_cameras);
+    if num_cameras <= 0
+    {
+        return;
+    }
+    
     let done = Arc::new(AtomicBool::new(false));
     let done_thr = done.clone();
     let done_hdl = done.clone();
@@ -28,12 +35,6 @@ fn main() {
         done_hdl.store(true, Ordering::SeqCst);
     }).expect("Error setting Ctrl-C handler");
 
-    let num_cameras = num_cameras();
-    println!("Found {} cameras", num_cameras);
-    if num_cameras <= 0
-    {
-        return;
-    }
     let (cam, caminfo) = open_camera_by_index(0).unwrap();
     let props = cam.get_props();
     println!("{}", props);
@@ -44,7 +45,7 @@ fn main() {
             sleep(Duration::from_secs(1));
             let temp = caminfo.get_temperature().unwrap();
             let dtime: DateTime<Local> = SystemTime::now().into();
-            print!("[{}] Camera temperature: {:>+05.1} C, Cooler Power: {:>03}\r", dtime.format("%Y-%m-%d %H:%M:%S"), temp, caminfo.get_cooler_power().unwrap());
+            print!("[{}] Camera temperature: {:>+05.1} C, Cooler Power: {:>03}\r", dtime.format("%H:%M:%S"), temp, caminfo.get_cooler_power().unwrap());
         }
     });
     cam.set_temperature(cfg.target_temp).unwrap();
