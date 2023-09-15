@@ -8,25 +8,49 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
+#[deny(missing_docs)]
+/// Image metadata structure.
+/// This structure implements the [`std::fmt::Display`] and [`std::clone::Clone`] traits.
 pub struct ImageMetaData {
+    /// Binning in X direction
     pub bin_x: u32,
+    /// Binning in Y direction
     pub bin_y: u32,
+    /// Top of image (pixels, binned coordinates)
     pub img_top: u32,
+    /// Left of image (pixels, binned coordinates)
     pub img_left: u32,
+    /// Camera temperature (C)
     pub temperature: f32,
+    /// Exposure time
     pub exposure: Duration,
+    /// Timestamp of the image
     pub timestamp: SystemTime,
+    /// Name of the camera
     pub camera_name: String,
+    /// Gain (raw)
     pub gain: i64,
+    /// Offset (raw)
     pub offset: i64,
+    /// Minimum gain (raw)
     pub min_gain: i32,
+    /// Maximum gain (raw)
     pub max_gain: i32,
     extended_metadata: Vec<(String, String)>,
 }
 
 impl ImageMetaData {
-    pub fn new(timestamp: SystemTime, exposure: Duration, temperature: f32, bin_x: u32, bin_y: u32, camera_name: &str, gain: i64, offset: i64) -> Self
-    {
+    /// Create a new image metadata structure.
+    pub fn new(
+        timestamp: SystemTime,
+        exposure: Duration,
+        temperature: f32,
+        bin_x: u32,
+        bin_y: u32,
+        camera_name: &str,
+        gain: i64,
+        offset: i64,
+    ) -> Self {
         Self {
             bin_x,
             bin_y,
@@ -42,7 +66,21 @@ impl ImageMetaData {
         }
     }
 
-    pub fn full_builder(bin_x: u32, bin_y: u32, img_top: u32, img_left: u32, temperature: f32, exposure: Duration, timestamp: SystemTime, camera_name: &str, gain: i64, offset: i64, min_gain: i32, max_gain: i32) -> Self {
+    /// Create a new image metadata structure with full parameters.
+    pub fn full_builder(
+        bin_x: u32,
+        bin_y: u32,
+        img_top: u32,
+        img_left: u32,
+        temperature: f32,
+        exposure: Duration,
+        timestamp: SystemTime,
+        camera_name: &str,
+        gain: i64,
+        offset: i64,
+        min_gain: i32,
+        max_gain: i32,
+    ) -> Self {
         Self {
             bin_x,
             bin_y,
@@ -125,10 +163,11 @@ impl ImageMetaData {
     }
 }
 
+#[derive(Clone)]
 /// Image data structure
 ///
 /// This structure contains the image data and the metadata associated with it.
-#[derive(Clone)]
+/// This structure implements the [`std::fmt::Display`] and [`std::clone::Clone`] traits.
 pub struct ImageData {
     img: DynamicImage,
     meta: ImageMetaData,
@@ -147,26 +186,47 @@ impl ImageData {
         Self { img, meta }
     }
 
+    /// Add an extended attribute to the image metadata using [`std::alloc::vec::push()`].
+    ///
+    /// # Panics
+    /// If the new capacity exceeds `isize::MAX` bytes.
     pub fn add_extended_attrib(&mut self, key: &str, val: &str) {
         self.meta.add_extended_attrib(key, val);
     }
 
+    /// Get the image metadata.
     pub fn get_metadata(&self) -> &ImageMetaData {
         &self.meta
     }
 
+    /// Set the image metadata.
     pub fn set_metadata(&mut self, meta: ImageMetaData) {
         self.meta = meta;
     }
 
+    /// Get the internal `image::DynamicImage` object from the image data structure.
     pub fn get_image(&self) -> &DynamicImage {
         &self.img
     }
 
+    /// Get a mutable reference to the internal `image::DynamicImage` object from the image data structure.
     pub fn get_image_mut(&mut self) -> &mut DynamicImage {
         &mut self.img
     }
 
+    /// Find the optimum exposure time and binning to reach a target pixel value.
+    ///
+    /// # Arguments
+    ///  * `percentile_pix` - The percentile of the pixel values to use as the target pixel value, in fraction.
+    ///  * `pixel_tgt` - The target pixel value, in fraction.
+    ///  * `pixel_uncertainty` - The uncertainty of the target pixel value, in fraction.
+    ///  * `min_allowed_exp` - The minimum allowed exposure time.
+    ///  * `max_allowed_exp` - The maximum allowed exposure time.
+    ///  * `max_allowed_bin` - The maximum allowed binning.
+    ///  * `pixel_exclusion` - The number of pixels to exclude from the top of the image.
+    ///
+    /// # Errors
+    ///  - Errors are returned as strings.
     pub fn find_optimum_exposure(
         &self,
         percentile_pix: f32,
@@ -300,6 +360,17 @@ impl ImageData {
         Ok((target_exposure, bin))
     }
 
+    /// Save the image data to a FITS file.
+    ///
+    /// # Arguments
+    ///  * `dir_prefix` - The directory where the file will be saved.
+    ///  * `file_prefix` - The prefix of the file name. The file name will be of the form `{file_prefix}_timestamp.fits`.
+    ///  * `progname` - The name of the program that generated the image.
+    ///  * `compress` - Whether to compress the FITS file.
+    ///  * `overwrite` - Whether to overwrite the file if it already exists.
+    ///
+    /// # Errors
+    ///  * `fitsio::errors::Error::Message` with the error description.
     pub fn save_fits(
         &self,
         dir_prefix: &Path,

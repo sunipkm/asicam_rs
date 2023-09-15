@@ -7,6 +7,7 @@ mod asicamera2_bindings;
 use asicamera2_bindings::*;
 
 use std::{
+    collections::HashMap,
     ffi::{c_long, c_uchar, CStr},
     fmt::Display,
     mem::MaybeUninit,
@@ -20,6 +21,9 @@ use image::DynamicImage;
 use imagedata::{ImageData, ImageMetaData};
 use log::{info, warn};
 
+/// This object describes a ZWO ASI camera, and provides methods for control and image capture.
+/// 
+/// This object implements the `CameraUnit` and `CameraInfo` trait.
 pub struct CameraUnit_ASI {
     id: Arc<ASICamId>,
     capturing: Arc<Mutex<bool>>,
@@ -36,6 +40,9 @@ pub struct CameraUnit_ASI {
 }
 
 #[derive(Clone)]
+/// This object describes a ZWO ASI camera and provides methods for obtaining housekeeping data.
+/// 
+/// This object implements the [`cameraunit::CameraInfo`] trait, and additionally the [`std::clone::Clone`] trait.
 pub struct CameraInfo_ASI {
     id: Arc<ASICamId>,
     capturing: Arc<Mutex<bool>>,
@@ -48,6 +55,9 @@ pub struct CameraInfo_ASI {
 }
 
 #[derive(Clone)]
+/// This object describes the properties of the ZWO ASI camera.
+/// 
+/// This object implements the [`std::fmt::Display`] and [`std::clone::Clone`] traits.
 pub struct ASICameraProps {
     name: String,
     id: i32,
@@ -67,47 +77,93 @@ pub struct ASICameraProps {
     is_trigger_camera: bool,
 }
 
+/// Get the number of available ZWO ASI cameras.
+/// 
+/// # Examples
+/// 
+/// ```
+/// let num_cameras = cameraunit_asi::num_cameras();
+/// if num_cameras <= 0 {
+///     println!("No cameras found");
+/// }
+/// // proceed to get camera IDs and information
+/// ```
 pub fn num_cameras() -> i32 {
     unsafe { ASIGetNumOfConnectedCameras() }
 }
 
-pub fn get_camera_ids() -> Option<Vec<i32>> {
+/// Get the IDs and names of the available ZWO ASI cameras.
+/// 
+/// # Examples
+/// 
+/// ```
+/// let cam_ids = cameraunit_asi::get_camera_ids();
+/// if let Some(cam_ids) = cam_ids {
+///     // do stuff with camera IDs and names
+/// }
+/// ```
+pub fn get_camera_ids() -> Option<HashMap<i32, String>> {
     let num_cameras = num_cameras();
     if num_cameras > 0 {
-        let mut ids: Vec<i32> = Vec::with_capacity(num_cameras as usize);
+        let mut map: HashMap<i32, String> = HashMap::with_capacity(num_cameras as usize);
         for i in 0..num_cameras {
-            let info = MaybeUninit::<ASI_CAMERA_INFO>::zeroed();
-            unsafe {
-                let mut info = info.assume_init();
-                let res = ASIGetCameraProperty(&mut info, i);
-                if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_INDEX as i32 {
-                    continue;
-                }
-                ids.push(info.CameraID);
+            let info = get_camera_prop_by_idx(i);
+            if let Err(_) = info {
+                continue;
+            } else {
+                let info = info.unwrap();
+                map.insert(
+                    info.CameraID,
+                    String::from_utf8_lossy(&unsafe {
+                        std::mem::transmute_copy::<[i8; 64], [u8; 64]>(&info.Name)
+                    })
+                    .to_string(),
+                );
             }
         }
-        if ids.len() == 0 {
+        if map.len() == 0 {
             return None;
         }
-        Some(ids)
+        Some(map)
     } else {
         None
     }
 }
 
+/// Open a ZWO ASI camera by ID for access.
+/// 
+/// This method, if successful, returns a tuple containing a `CameraUnit_ASI` object and a `CameraInfo_ASI` object.
+/// The `CameraUnit_ASI` object allows for control of the camera and image capture, while the `CameraInfo_ASI` object
+/// only allows for access to housekeeping data. 
+/// 
+/// The `CameraUnit_ASI` object is required for image capture, and should
+/// be mutable in order to set exposure, ROI, gain, etc.
+/// 
+/// The `CameraInfo_ASI` object allows cloning and sharing, and is useful for obtaining housekeeping data from separate
+/// threads.
+/// 
+/// # Arguments
+/// 
+/// * `id` - The ID of the camera to open. This ID can be obtained from the `get_camera_ids()` method.
+/// 
+/// # Errors
+///  - [`cameraunit::Error::InvalidId`] - The ID provided is not valid.
+///  - [`cameraunit::Error::CameraClosed`] - The camera is closed.
+///  - [`cameraunit::Error::NoCamerasAvailable`] - No cameras are available.
+/// 
+/// # Examples
+/// 
+/// ```
+/// let id: i32 = 0; // some ID obtained using get_camera_ids()
+/// let (mut cam, caminfo) = open_camera(id).unwrap();
+/// // do things with cam
+/// ```
 pub fn open_camera(id: i32) -> Result<(CameraUnit_ASI, CameraInfo_ASI), Error> {
     if let Some(cam_ids) = get_camera_ids() {
-        if !cam_ids.contains(&id) {
+        if !cam_ids.contains_key(&id) {
             return Err(Error::InvalidId(id));
         }
-        let info = MaybeUninit::<ASI_CAMERA_INFO>::zeroed();
-        let mut info = unsafe { info.assume_init() };
-        let res = unsafe { ASIGetCameraPropertyByID(id, &mut info) };
-        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-            return Err(Error::InvalidId(id));
-        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-            return Err(Error::CameraClosed);
-        }
+        let info = get_camera_prop_by_id(id)?;
 
         let mut prop = ASICameraProps {
             name: String::from_utf8_lossy(&unsafe {
@@ -237,20 +293,57 @@ pub fn open_camera(id: i32) -> Result<(CameraUnit_ASI, CameraInfo_ASI), Error> {
     }
 }
 
-pub fn open_camera_by_index(idx: usize) -> Result<(CameraUnit_ASI, CameraInfo_ASI), Error> {
+/// Open the first available ZWO ASI camera for access.
+/// 
+/// This method, if successful, returns a tuple containing a `CameraUnit_ASI` object and a `CameraInfo_ASI` object.
+/// The `CameraUnit_ASI` object allows for control of the camera and image capture, while the `CameraInfo_ASI` object
+/// only allows for access to housekeeping data. 
+/// 
+/// The `CameraUnit_ASI` object is required for image capture, and should
+/// be mutable in order to set exposure, ROI, gain, etc.
+/// 
+/// The `CameraInfo_ASI` object allows cloning and sharing, and is useful for obtaining housekeeping data from separate
+/// threads.
+/// 
+/// # Errors
+///  - [`cameraunit::Error::InvalidId`] - The ID provided is not valid.
+///  - [`cameraunit::Error::CameraClosed`] - The camera is closed.
+///  - [`cameraunit::Error::NoCamerasAvailable`] - No cameras are available.
+/// 
+/// # Examples
+/// 
+/// ```
+/// let (mut cam, caminfo) = open_first_camera().unwrap();
+/// ```
+pub fn open_first_camera() -> Result<(CameraUnit_ASI, CameraInfo_ASI), Error> {
     let ids = get_camera_ids();
     if let Some(ids) = ids {
-        if idx >= ids.len() {
-            return Err(Error::InvalidIndex(idx as i32));
-        }
-        return open_camera(ids[idx]);
+        let val = ids.iter().next().unwrap();
+        return open_camera(*val.0);
     } else {
         return Err(Error::NoCamerasAvailable);
     }
 }
 
+#[deny(missing_docs)]
 impl CameraUnit_ASI {
+    /// Set an unique identifier for the camera.
+    /// 
+    /// This method is only available for USB3 cameras.
+    /// 
+    /// # Arguments
+    ///  * `uuid` - The unique identifier to set. This must be an array of 8 unsigned bytes.
+    /// 
+    /// # Errors
+    ///  - [`cameraunit::Error::InvalidMode`] - The camera does not support setting a UUID.
+    ///  - [`cameraunit::Error::InvalidId`] - The camera ID is invalid.
+    ///  - [`cameraunit::Error::CameraClosed`] - The camera is closed.
     pub fn set_uuid(&mut self, uuid: &[u8; 8]) -> Result<(), Error> {
+        if !self.props.is_usb3_camera {
+            return Err(Error::InvalidMode(
+                "Camera does not support UUID".to_owned(),
+            ));
+        }
         if self.props.uuid == *uuid {
             Ok(())
         } else {
@@ -266,6 +359,7 @@ impl CameraUnit_ASI {
         }
     }
 
+    /// Get the backend SDK version.
     pub fn get_sdk_version() -> String {
         let c_buf = unsafe { ASIGetSDKVersion() };
         let c_str: &CStr = unsafe { CStr::from_ptr(c_buf) };
@@ -273,6 +367,11 @@ impl CameraUnit_ASI {
         str_slice.to_owned()
     }
 
+    /// Get the camera serial number.
+    /// 
+    /// # Errors
+    ///  - [`cameraunit::Error::InvalidId`] - The camera ID is invalid.
+    ///  - [`cameraunit::Error::GeneralError`] - The camera does not have a serial number.
     pub fn get_serial(&self) -> Result<u64, Error> {
         let ser = MaybeUninit::<ASI_SN>::zeroed();
         let mut ser = unsafe { ser.assume_init() };
@@ -288,10 +387,20 @@ impl CameraUnit_ASI {
         Ok(ser)
     }
 
+    /// Get the camera image format.
     pub fn get_image_fmt(&self) -> ASIImageFormat {
         self.image_fmt
     }
 
+    /// Set the camera image format.
+    /// 
+    /// # Arguments
+    ///  * `fmt` - The image format to set. The format is a pixel format from the `ASIImageFormat` enum.
+    /// 
+    /// # Errors
+    ///  - [`cameraunit::Error::InvalidMode`] - The camera does not support the specified image format.
+    ///  - [`cameraunit::Error::ExposureInProgress`] - An exposure is in progress.
+    ///  - Additionally, errors from [`Self::get_roi_format()`] and [`Self::set_roi_format()`] may be returned.
     pub fn set_image_fmt(&mut self, fmt: ASIImageFormat) -> Result<(), Error> {
         if self.image_fmt == fmt {
             return Ok(());
@@ -312,10 +421,17 @@ impl CameraUnit_ASI {
         Ok(())
     }
 
+    /// Get the camera properties.
     pub fn get_props(&self) -> &ASICameraProps {
         &self.props
     }
 
+    /// Get the internal ROI format.
+    /// 
+    /// # Errors
+    ///  - [`cameraunit::Error::InvalidId`] - The camera ID is invalid.
+    ///  - [`cameraunit::Error::CameraClosed`] - The camera is closed.
+    ///  - [`cameraunit::Error::InvalidMode`] - The camera does not support the specified image format.
     fn get_roi_format(&self) -> Result<ASIRoiMode, Error> {
         let mut roi = ASIRoiMode {
             width: 0,
@@ -403,7 +519,25 @@ impl CameraUnit_ASI {
     }
 }
 
+#[deny(missing_docs)]
 impl CameraInfo for CameraInfo_ASI {
+    /// Cancel an exposure in progress.
+    /// This function may panic if the internal mutex is poisoned.
+    /// 
+    /// # Errors
+    ///  - `InvalidId` - Invalid camera ID
+    ///  - `CameraClosed` - Camera is closed
+    fn cancel_capture(&self) -> Result<(), Error> {
+        let mut capturing = self.capturing.lock().unwrap();
+        if *capturing {
+            return Ok(());
+        }
+        sys_cancel_capture(self.id.0)?;
+        *capturing = false;
+        Ok(())
+    }
+
+    /// Get the camera name.
     fn camera_name(&self) -> &str {
         &self.name
     }
@@ -424,10 +558,13 @@ impl CameraInfo for CameraInfo_ASI {
         Some(self.psize as f32)
     }
 
+    /// For ZWO ASI cameras, this always returns true.
     fn camera_ready(&self) -> bool {
         true
     }
 
+    /// Check if the camera is capturing an image.
+    /// This function may panic if the internal mutex is poisoned.
     fn is_capturing(&self) -> bool {
         let res = self.capturing.try_lock();
         match res {
@@ -444,12 +581,38 @@ impl CameraInfo for CameraInfo_ASI {
         get_temperature(self.id.0)
     }
 
+    /// Set the camera temperature.
+    /// 
+    /// # Arguments
+    ///  * `temperature` - Target temperature in degrees Celsius, must be between -80 C and 20 C.
+    /// 
+    /// # Errors
+    ///  - `InvalidControlType` - Camera does not have a cooler
+    ///  - `InvalidValue` - Temperature is outside of range
+    ///  - `InvalidId` - Invalid camera ID
     fn set_temperature(&self, temperature: f32) -> Result<f32, Error> {
         set_temperature(self.id.0, temperature, self.is_cooler_cam)
     }
 }
 
 impl CameraInfo for CameraUnit_ASI {
+    /// Cancel an exposure in progress.
+    /// This function may panic if the internal mutex is poisoned.
+    /// 
+    /// # Errors
+    ///  - `InvalidId` - Invalid camera ID
+    ///  - `CameraClosed` - Camera is closed
+    fn cancel_capture(&self) -> Result<(), Error> {
+        let mut capturing = self.capturing.lock().unwrap();
+        if *capturing {
+            return Ok(());
+        }
+        sys_cancel_capture(self.id.0)?;
+        *capturing = false;
+        Ok(())
+    }
+
+    /// Get the camera name.
     fn camera_name(&self) -> &str {
         &self.props.name
     }
@@ -470,10 +633,13 @@ impl CameraInfo for CameraUnit_ASI {
         Some(self.props.pixel_size as f32)
     }
 
+    /// For ZWO ASI cameras, this always returns true.
     fn camera_ready(&self) -> bool {
         true
     }
 
+    /// Check if the camera is capturing an image.
+    /// This function may panic if the internal mutex is poisoned.
     fn is_capturing(&self) -> bool {
         let res = self.capturing.try_lock();
         match res {
@@ -489,29 +655,33 @@ impl CameraInfo for CameraUnit_ASI {
     fn get_temperature(&self) -> Option<f32> {
         get_temperature(self.id.0)
     }
-
+    
+    /// Set the camera temperature.
+    /// 
+    /// # Arguments
+    ///  * `temperature` - Target temperature in degrees Celsius, must be between -80 C and 20 C.
+    /// 
+    /// # Errors
+    ///  - `InvalidControlType` - Camera does not have a cooler
+    ///  - `InvalidValue` - Temperature is outside of range
+    ///  - `InvalidId` - Invalid camera ID
     fn set_temperature(&self, temperature: f32) -> Result<f32, Error> {
         set_temperature(self.id.0, temperature, self.props.is_cooler_cam)
     }
 }
 
 impl CameraUnit for CameraUnit_ASI {
+    /// Get the camera vendor. In this case, returns `ZWO`.
     fn get_vendor(&self) -> &str {
         "ZWO"
     }
 
+    /// Get a handle to the internal camera. This is intended to be used for development purposes, 
+    /// as (presumably FFI and unsafe) internal calls are abstracted away from the user.
+    /// 
+    /// The internal handle is of type `i32`.
     fn get_handle(&self) -> Option<&dyn std::any::Any> {
         Some(&self.id.0)
-    }
-
-    fn cancel_capture(&self) -> Result<(), Error> {
-        let mut capturing = self.capturing.lock().unwrap();
-        if *capturing {
-            return Ok(());
-        }
-        sys_cancel_capture(self.id.0)?;
-        *capturing = false;
-        Ok(())
     }
 
     fn get_min_exposure(&self) -> Result<Duration, Error> {
@@ -530,6 +700,15 @@ impl CameraUnit for CameraUnit_ASI {
         Ok(self.gain_max)
     }
 
+    /// Capture an image.
+    /// 
+    /// # Errors
+    ///  - `InvalidId` - Invalid camera ID.
+    ///  - `CameraClosed` - Camera is closed.
+    ///  - `ExposureInProgress` - An exposure is already in progress.
+    ///  - `ExposureFailed` - Exposure failed.
+    ///  - `TimedOut` - Exposure timed out.
+    ///  - `GeneralError` - The camera is in video capture mode.
     fn capture_image(&self) -> Result<ImageData, Error> {
         let start_time: SystemTime;
         let roi: ASIRoiMode;
@@ -540,7 +719,8 @@ impl CameraUnit for CameraUnit_ASI {
                 *capturing = true;
                 return Err(Error::ExposureInProgress);
             } else if stat == ASIExposureStatus::Failed {
-                return Err(Error::ExposureFailed("Unknown".to_owned()));
+                *capturing = false;
+                warn!("Exposure failed, retrying");
             }
             *capturing = false;
             roi = self.get_roi_format()?;
@@ -718,10 +898,15 @@ impl CameraUnit for CameraUnit_ASI {
         self.exposure
     }
 
+    /// Get the camera gain in percentage.
+    /// 
+    /// # Errors
+    ///  - `InvalidId` - Invalid camera ID.
+    ///  - `CameraClosed` - Camera is closed.
     fn get_gain(&self) -> f32 {
         let res = get_control_value(self.id.0, ASIControlType::Gain);
         if let Ok((val, _)) = res {
-            return (val as f32 - self.gain_min as f32)
+            return (val as f32 - self.gain_min as f32) * 100.0
                 / (self.gain_max as f32 - self.gain_min as f32);
         }
         0.0
@@ -731,6 +916,11 @@ impl CameraUnit for CameraUnit_ASI {
         return &self.roi;
     }
 
+    /// Get the raw camera gain.
+    /// 
+    /// # Errors
+    ///  - `InvalidId` - Invalid camera ID.
+    ///  - `CameraClosed` - Camera is closed.
     fn get_gain_raw(&self) -> i64 {
         let res = get_control_value(self.id.0, ASIControlType::Gain);
         if let Ok((val, _)) = res {
@@ -739,6 +929,11 @@ impl CameraUnit for CameraUnit_ASI {
         0
     }
 
+    /// Get the pixel offset.
+    /// 
+    /// # Errors
+    ///  - `InvalidId` - Invalid camera ID.
+    ///  - `CameraClosed` - Camera is closed.
     fn get_offset(&self) -> i32 {
         let res = get_control_value(self.id.0, ASIControlType::Offset);
         if let Ok((val, _)) = res {
@@ -747,15 +942,24 @@ impl CameraUnit for CameraUnit_ASI {
         0
     }
 
+    /// Get the shutter state.
+    /// 
+    /// # Errors
+    /// Does not return an error.
     fn get_shutter_open(&self) -> Result<bool, Error> {
-        if !self.props.mechanical_shutter {
-            return Err(Error::InvalidControlType(
-                "Camera does not have mechanical shutter".to_owned(),
-            ));
-        }
         Ok(!self.is_dark_frame)
     }
 
+    /// Set the camera exposure time.
+    /// 
+    /// # Arguments
+    ///  * `exposure` - Exposure time.
+    /// 
+    /// # Errors
+    ///  - `InvalidValue` - Exposure time is outside of valid range.
+    ///  - `ExposureInProgress` - An exposure is already in progress.
+    ///  - `InvalidId` - Invalid camera ID.
+    ///  - `CameraClosed` - Camera is closed.
     fn set_exposure(&mut self, exposure: Duration) -> Result<Duration, Error> {
         if exposure < self.exp_min {
             return Err(Error::InvalidValue(format!(
@@ -785,6 +989,16 @@ impl CameraUnit for CameraUnit_ASI {
         Ok(self.exposure)
     }
 
+    /// Set the camera gain in percentage.
+    /// 
+    /// # Arguments
+    ///  * `gain` - Gain in percentage, must be between 0 and 100.
+    /// 
+    /// # Errors
+    ///  - `InvalidValue` - Gain is outside of valid range.
+    ///  - `ExposureInProgress` - An exposure is already in progress.
+    ///  - `InvalidId` - Invalid camera ID.
+    ///  - `CameraClosed` - Camera is closed.
     fn set_gain(&mut self, gain: f32) -> Result<f32, Error> {
         if gain < 0.0 || gain > 100.0 {
             return Err(Error::InvalidValue(format!(
@@ -793,11 +1007,21 @@ impl CameraUnit for CameraUnit_ASI {
             )));
         }
         let gain =
-            (gain * (self.gain_max as f32 - self.gain_min as f32) + self.gain_min as f32) as c_long;
+            (gain * (self.gain_max as f32 - self.gain_min as f32) / 100.0 + self.gain_min as f32) as c_long;
         let gain = self.set_gain_raw(gain)?;
-        Ok((gain as f32 - self.gain_min as f32) / (self.gain_max as f32 - self.gain_min as f32))
+        Ok((gain as f32 - self.gain_min as f32) * 100.0 / (self.gain_max as f32 - self.gain_min as f32))
     }
 
+    /// Set the camera gain in raw values.
+    /// 
+    /// # Arguments
+    ///  * `gain` - Camera gain.
+    /// 
+    /// # Errors
+    ///  - `InvalidValue` - Gain is outside of valid range.
+    ///  - `ExposureInProgress` - An exposure is already in progress.
+    ///  - `InvalidId` - Invalid camera ID.
+    ///  - `CameraClosed` - Camera is closed.
     fn set_gain_raw(&mut self, gain: i64) -> Result<i64, Error> {
         if gain < self.gain_min {
             return Err(Error::InvalidValue(format!(
@@ -818,6 +1042,17 @@ impl CameraUnit for CameraUnit_ASI {
         Ok(self.get_gain_raw())
     }
 
+    /// Set the region of interest.
+    /// 
+    /// # Arguments
+    ///  * `roi` - Region of interest, of type `cameraunit::ROI`.
+    /// 
+    /// # Errors
+    ///  - `InvalidValue` - ROI is invalid.
+    ///  - `OutOfBounds` - ROI is outside of the CCD.
+    ///  - `ExposureInProgress` - An exposure is already in progress.
+    ///  - `InvalidId` - Invalid camera ID.
+    ///  - `CameraClosed` - Camera is closed.
     fn set_roi(&mut self, roi: &ROI) -> Result<&ROI, Error> {
         if roi.bin_x != roi.bin_y {
             return Err(Error::InvalidValue(
@@ -916,6 +1151,14 @@ impl CameraUnit for CameraUnit_ASI {
         Ok(&self.roi)
     }
 
+    /// Set the shutter to open (always or during exposure) or closed.
+    /// 
+    /// # Arguments
+    ///  * `open` - Whether to open the shutter.
+    /// 
+    /// # Errors
+    ///  - `InvalidControlType` - Camera does not have a mechanical shutter.
+    ///  - `ExposureInProgress` - An exposure is already in progress.
     fn set_shutter_open(&mut self, open: bool) -> Result<bool, Error> {
         let capturing = self.capturing.lock().unwrap();
         if *capturing {
@@ -1091,9 +1334,14 @@ enum ASIBayerPattern {
 
 #[repr(i32)]
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[deny(missing_docs)]
+/// Available image pixel formats for the ZWO ASI cameras.
 pub enum ASIImageFormat {
+    /// 8-bit raw image.
     Image_RAW8 = ASI_IMG_TYPE_ASI_IMG_RAW8,
+    /// 24-bit RGB image.
     Image_RGB24 = ASI_IMG_TYPE_ASI_IMG_RGB24,
+    /// 16-bit raw image.
     Image_RAW16 = ASI_IMG_TYPE_ASI_IMG_RAW16,
 }
 
@@ -1236,6 +1484,11 @@ fn get_controlcap_minmax(caps: &Vec<ASIControlCaps>, id: ASIControlType) -> Opti
     None
 }
 
+/// ZWO ASI camera internal implementation to cancel ongoing capture.
+/// 
+/// # Errors
+///  - `InvalidId` - Invalid camera ID
+///  - `CameraClosed` - Camera is closed
 fn sys_cancel_capture(id: i32) -> Result<(), Error> {
     let res = unsafe { ASIStopExposure(id) };
     if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
@@ -1287,7 +1540,17 @@ fn set_control_value(id: i32, ctyp: ASIControlType, val: c_long, auto: bool) -> 
     }
     Ok(())
 }
-
+/// ZWO ASI camera internal implementation to set camera temperature.
+/// 
+/// # Arguments
+///  * `id` - Camera ID
+///  * `temperature` - Target temperature in degrees Celsius, must be between -80 C and 20 C.
+///  * `is_cooler_cam` - Whether the camera has a cooler.
+/// 
+/// # Errors
+///  - `InvalidControlType` - Camera does not have a cooler
+///  - `InvalidValue` - Temperature is outside of range
+///  - `InvalidId` - Invalid camera ID
 fn set_temperature(id: i32, temperature: f32, is_cooler_cam: bool) -> Result<f32, Error> {
     if !is_cooler_cam {
         return Err(Error::InvalidControlType(
@@ -1324,4 +1587,26 @@ fn get_temperature(id: i32) -> Option<f32> {
         return Some(val as f32 / 10.0);
     }
     None
+}
+
+fn get_camera_prop_by_id(id: i32) -> Result<ASI_CAMERA_INFO, Error> {
+    let info = MaybeUninit::<ASI_CAMERA_INFO>::zeroed();
+    let mut info = unsafe { info.assume_init() };
+    let res = unsafe { ASIGetCameraPropertyByID(id, &mut info) };
+    if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+        return Err(Error::InvalidId(id));
+    } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+        return Err(Error::CameraClosed);
+    }
+    Ok(info)
+}
+
+fn get_camera_prop_by_idx(idx: i32) -> Result<ASI_CAMERA_INFO, Error> {
+    let info = MaybeUninit::<ASI_CAMERA_INFO>::zeroed();
+    let mut info = unsafe { info.assume_init() };
+    let res = unsafe { ASIGetCameraProperty(&mut info, idx) };
+    if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_INDEX as i32 {
+        return Err(Error::InvalidId(idx));
+    }
+    Ok(info)
 }
