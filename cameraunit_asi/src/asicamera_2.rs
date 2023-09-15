@@ -1129,7 +1129,7 @@ impl CameraUnit for CameraUnit_ASI {
         }
 
         let mut roi_md = self.get_roi_format()?;
-        let (xs, ys) = self.get_start_pos()?;
+        let (_xs, _ys) = self.get_start_pos()?;
         let roi_md_old = roi_md.clone();
 
         info!(
