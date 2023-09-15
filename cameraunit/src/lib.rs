@@ -22,16 +22,58 @@ impl Display for ROI {
     }
 }
 
-pub trait CameraUnit {
+pub trait CameraInfo {
+    fn camera_ready(&self) -> bool {
+        false
+    }
+
+    fn camera_name(&self) -> &str {
+        "Unknown"
+    }
+
+    fn get_uuid(&self) -> Option<String> {
+        None
+    }
+
+    fn is_capturing(&self) -> bool {
+        false
+    }
+
+    fn set_temperature(&self, _temperature: f32) -> Result<f32, Error> {
+        Err(Error::Message("Not implemented".to_string()))
+    }
+
+    fn get_temperature(&self) -> Option<f32> {
+        None
+    }
+
+    fn get_cooler_power(&self) -> Option<f32> {
+        None
+    }
+
+    fn set_cooler_power(&self, _power: f32) -> Result<f32, Error> {
+        Err(Error::Message("Not implemented".to_string()))
+    }
+
+    fn get_ccd_width(&self) -> u32 {
+        0
+    }
+
+    fn get_ccd_height(&self) -> u32 {
+        0
+    }
+
+    fn get_pixel_size(&self) -> Option<f32> {
+        None
+    }
+}
+
+pub trait CameraUnit : CameraInfo {
     fn get_vendor(&self) -> &str {
         "Unknown"
     }
 
     fn get_handle(&self) -> Option<&dyn Any> {
-        None
-    }
-
-    fn get_uuid(&self) -> Option<String> {
         None
     }
 
@@ -43,20 +85,8 @@ pub trait CameraUnit {
         Err(Error::GeneralError("Not implemented".to_string()))
     }
 
-    fn is_capturing(&self) -> bool {
-        false
-    }
-
     fn get_last_image(&self) -> Option<ImageData> {
         None
-    }
-
-    fn camera_ready(&self) -> bool {
-        false
-    }
-
-    fn camera_name(&self) -> &str {
-        "Unknown"
     }
 
     fn set_exposure(&mut self, _exposure: Duration) -> Result<Duration, Error> {
@@ -115,22 +145,6 @@ pub trait CameraUnit {
         Err(Error::Message("Not implemented".to_string()))
     }
 
-    fn set_temperature(&self, _temperature: f32) -> Result<f32, Error> {
-        Err(Error::Message("Not implemented".to_string()))
-    }
-
-    fn get_temperature(&self) -> Option<f32> {
-        None
-    }
-
-    fn get_cooler_power(&self) -> Option<f32> {
-        None
-    }
-
-    fn set_cooler_power(&mut self, _power: f32) -> Result<f32, Error> {
-        Err(Error::Message("Not implemented".to_string()))
-    }
-
     fn set_roi(&mut self, _roi: &ROI) -> Result<&ROI, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
@@ -156,18 +170,6 @@ pub trait CameraUnit {
 
     fn get_status(&self) -> String {
         "Not implemented".to_string()
-    }
-
-    fn get_ccd_width(&self) -> u32 {
-        0
-    }
-
-    fn get_ccd_height(&self) -> u32 {
-        0
-    }
-
-    fn get_pixel_size(&self) -> Option<f32> {
-        None
     }
 }
 

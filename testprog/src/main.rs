@@ -1,7 +1,7 @@
 use std::{path::Path, time::{Duration, SystemTime}, thread::{self, sleep}, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}};
 
-use cameraunit::{CameraUnit, ROI};
-use cameraunit_asi::{ASICameraProps, CameraUnit_ASI};
+use cameraunit::{CameraUnit, CameraInfo, ROI};
+use cameraunit_asi::{num_cameras, open_camera_by_index};
 use chrono::{DateTime, Local};
 use ini::ini;
 
@@ -17,6 +17,37 @@ struct ASICamconfig {
     target_uncertainty: f32,
     gain: i32,
     target_temp: f32,
+}
+
+fn main() {
+    let done = Arc::new(AtomicBool::new(false));
+    let done_thr = done.clone();
+    let done_hdl = done.clone();
+
+    ctrlc::set_handler(move || {
+        done_hdl.store(true, Ordering::SeqCst);
+    }).expect("Error setting Ctrl-C handler");
+
+    let num_cameras = num_cameras();
+    println!("Found {} cameras", num_cameras);
+    if num_cameras <= 0
+    {
+        return;
+    }
+    let (cam, caminfo) = open_camera_by_index(0).unwrap();
+    let props = cam.get_props();
+    println!("{}", props);
+    let cfg = ASICamconfig::from_ini("asicam.ini").unwrap();
+    let camthread = thread::spawn(move|| {
+        while done_thr.load(Ordering::SeqCst)
+        {
+            sleep(Duration::from_secs(1));
+            let temp = caminfo.get_temperature().unwrap();
+            let dtime: DateTime<Local> = SystemTime::now().into();
+            print!("[{}] Camera temperature: {:>+05.1} C, Cooler Power: {:>03}\r", dtime.format("%Y-%m-%d %H:%M:%S"), temp, caminfo.get_cooler_power().unwrap());
+        }
+    });
+    cam.set_temperature(cfg.target_temp).unwrap();
 }
 
 impl Default for ASICamconfig {
@@ -90,30 +121,4 @@ impl ASICamconfig {
         }
         Ok(cfg)
     }
-}
-
-fn main() {
-    let mut done: AtomicBool = AtomicBool::new(false);
-    let num_cameras = CameraUnit_ASI::num_cameras();
-    println!("Found {} cameras", num_cameras);
-    if num_cameras <= 0
-    {
-        return;
-    }
-    let cam = Arc::new(Mutex::new(CameraUnit_ASI::open_camera_by_index(0).unwrap()));
-    let camref = cam.clone();
-    let props = cam.lock().unwrap().get_props();
-    println!("{}", props);
-    let cfg = ASICamconfig::from_ini("asicam.ini").unwrap();
-    let camthread = thread::spawn(move|| {
-        while *&done.load(Ordering::Relaxed)
-        {
-            sleep(Duration::from_secs(1));
-            let temp = camref.lock().unwrap().get_temperature().unwrap();
-            let dtime: DateTime<Local> = SystemTime::now().into();
-            print!("[{}] Camera temperature: {:>+05.1} C, Cooler Power: {:>03}\r", dtime.format("%Y-%m-%d %H:%M:%S"), temp, camref.lock().unwrap().get_cooler_power().unwrap());
-        }
-    });
-    cam.set_temperature(cfg.target_temp).unwrap();
-    cam.camera_name();
 }
