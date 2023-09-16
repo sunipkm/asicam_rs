@@ -18,7 +18,7 @@ use std::{
 
 use cameraunit::{CameraInfo, CameraUnit, Error, ROI};
 use image::DynamicImage;
-use imagedata::{ImageData, ImageMetaData};
+use cameraunit::{ImageData, ImageMetaData};
 use log::{info, warn};
 
 /// This object describes a ZWO ASI camera, and provides methods for control and image capture.
@@ -1391,9 +1391,21 @@ impl Drop for ASICamId {
     fn drop(&mut self) {
         let res = unsafe { ASIStopExposure(self.0) };
         if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
-            warn!("Invalid camera ID: {}", self.0);
+            warn!("StopExp: Invalid camera ID: {}", self.0);
         } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
-            warn!("Camera {} is closed", self.0);
+            warn!("StopExp: Camera {} is closed", self.0);
+        }
+        let res = unsafe { ASISetControlValue(self.0, ASI_CONTROL_TYPE_ASI_COOLER_ON as i32, 0, ASI_BOOL_ASI_FALSE as i32)};
+        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+            warn!("CoolerOff: Invalid camera ID: {}", self.0);
+        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+            warn!("CoolerOff: Camera {} is closed", self.0);
+        }
+        else if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_CONTROL_TYPE as i32 {
+            warn!("CoolerOff: Invalid Control camera {}", self.0);
+        }
+        else if res == ASI_ERROR_CODE_ASI_ERROR_GENERAL_ERROR as i32 {
+            warn!("CoolerOff: General error camera {}", self.0);
         }
         let res = unsafe { ASICloseCamera(self.0) };
         if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {

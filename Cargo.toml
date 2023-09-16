@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "cameraunit",
-    "imagedata",
     "cameraunit_asi",
     "testprog",
 ]
