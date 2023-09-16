@@ -178,7 +178,7 @@ pub trait CameraUnit : CameraInfo {
     /// non-blocking exposure has finished running.
     /// 
     /// Raises a `Message` with the message `"Not implemented"` if unimplemented.
-    fn image_ready(&self) -> Result<(), Error> {
+    fn image_ready(&self) -> Result<bool, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
 

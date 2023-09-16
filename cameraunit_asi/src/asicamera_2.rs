@@ -996,18 +996,21 @@ impl CameraUnit for CameraUnit_ASI {
     }
 
     /// Check if an image is ready after [`CameraUnit_ASI::start_exposure()`].
+    /// 
+    /// # Returns
+    ///  - `false` if exposure is in progress.
+    ///  - `true` if exposure is ready for download.
     ///
     /// # Errors
-    ///  - [`cameraunit::Error::ExposureInProgress`]: Exposure in progress.
     ///  - [`cameraunit::Error::InvalidId`]: Invalid camera ID.
     ///  - [`cameraunit::Error::CameraClosed`]: Camera is closed.
     ///  - [`cameraunit::Error::ExposureFailed`]: Exposure failed for unknown reason/camera
     /// still idle, indicating previous exposure did not start.
-    fn image_ready(&self) -> Result<(), Error> {
+    fn image_ready(&self) -> Result<bool, Error> {
         let mut capturing = self.capturing.lock().unwrap();
         let stat = self.get_exposure_status()?;
         match stat {
-            ASIExposureStatus::Working => Err(Error::ExposureInProgress),
+            ASIExposureStatus::Working => Ok(false),
             ASIExposureStatus::Failed => {
                 *capturing = false;
                 Err(Error::ExposureFailed("Unknown error".to_string()))
@@ -1018,7 +1021,7 @@ impl CameraUnit for CameraUnit_ASI {
                     "Camera is idle. Was exposure started?".to_string(),
                 ))
             }
-            ASIExposureStatus::Success => Ok(()),
+            ASIExposureStatus::Success => Ok(true),
         }
     }
 

@@ -9,7 +9,7 @@ pub use asicamera_2::{
 mod tests {
     use std::{path::Path, thread::sleep, time::Duration};
 
-    use cameraunit::{CameraUnit, Error};
+    use cameraunit::CameraUnit;
 
     use crate::{num_cameras, open_first_camera};
 
@@ -17,18 +17,28 @@ mod tests {
     fn test_write_image() -> () {
         let nc = num_cameras();
         if nc <= 0 {
-            ()
+            return;
         }
-        let (mut cam, _) = open_first_camera().unwrap();
-        cam.set_exposure(Duration::from_millis(700)).unwrap();
-        cam.start_exposure().unwrap();
-        while cam
+        let (mut cam, _) = open_first_camera()
+            .map_err(|x| println!("Opening camera: {}", x.to_string()))
+            .unwrap();
+        cam.set_exposure(Duration::from_millis(700))
+            .map_err(|x| println!("Setting exposure: {}", x.to_string()))
+            .unwrap();
+        cam.start_exposure()
+            .map_err(|x| println!("Start exposure: {}", x.to_string()))
+            .unwrap();
+        while !cam
             .image_ready()
-            .is_err_and(|x| x == Error::ExposureInProgress)
+            .map_err(|x| println!("Check exposure: {}", x.to_string()))
+            .unwrap()
         {
             sleep(Duration::from_secs(1));
         }
-        let img = cam.download_image().unwrap();
+        let img = cam
+            .download_image()
+            .map_err(|x| println!("Downloading image: {}", x.to_string()))
+            .unwrap();
         img.save_fits(Path::new("./"), "test", "asicam_test", true, true)
             .unwrap();
     }
