@@ -160,11 +160,26 @@ pub trait CameraUnit : CameraInfo {
         Err(Error::Message("Not implemented".to_string()))
     }
 
-    /// Get the last captured image.
+    /// Start an exposure and return. This function does NOT block.
     /// 
-    /// Defaults to `None` if unimplemented.
-    fn get_last_image(&self) -> Option<ImageData> {
-        None
+    /// Raises a `Message` with the message `"Not implemented"` if unimplemented.
+    fn start_exposure(&self) -> Result<(), Error> {
+        Err(Error::Message("Not implemented".to_string()))
+    }
+
+    /// Download the image captured in [`CameraUnit::start_exposure()`].
+    /// 
+    /// Raises a `Message` with the message `"Not implemented"` if unimplemented.
+    fn download_image(&self) -> Result<ImageData, Error> {
+        Err(Error::Message("Not implemented".to_string()))
+    }
+
+    /// Get exposure status. This function is useful for checking if a
+    /// non-blocking exposure has finished running.
+    /// 
+    /// Raises a `Message` with the message `"Not implemented"` if unimplemented.
+    fn image_ready(&self) -> Result<(), Error> {
+        Err(Error::Message("Not implemented".to_string()))
     }
 
     /// Set the exposure time.
@@ -308,7 +323,7 @@ pub trait CameraUnit : CameraInfo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 /// Errors returned by camera operations.
 pub enum Error {
     /// Error message.

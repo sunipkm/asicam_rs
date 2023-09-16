@@ -12,9 +12,12 @@ use std::{
     fmt::Display,
     io::{self, Write},
     mem::MaybeUninit,
-    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     thread::sleep,
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use cameraunit::{CameraInfo, CameraUnit, Error, ROI};
@@ -39,6 +42,7 @@ pub struct CameraUnit_ASI {
     is_dark_frame: bool,
     image_fmt: ASIImageFormat,
     roi: ROI,
+    last_img_start: Mutex<SystemTime>,
 }
 
 #[derive(Clone)]
@@ -261,6 +265,7 @@ pub fn open_camera(id: i32) -> Result<(CameraUnit_ASI, CameraInfo_ASI), Error> {
                 bin_x: 1,
                 bin_y: 1,
             },
+            last_img_start: Mutex::new(UNIX_EPOCH),
         };
 
         cobj.set_start_pos(0, 0)?;
@@ -587,13 +592,18 @@ impl CameraInfo for CameraInfo_ASI {
     ///  - `InvalidValue` - Invalid control value
     ///  - `InvalidId` - Invalid camera ID
     fn set_cooler(&self, on: bool) -> Result<(), Error> {
-        set_control_value(self.id.0, ASIControlType::CoolerOn, if on {1} else {0}, false)?;
+        set_control_value(
+            self.id.0,
+            ASIControlType::CoolerOn,
+            if on { 1 } else { 0 },
+            false,
+        )?;
         self.cooler_on.store(on, Ordering::SeqCst);
         Ok(())
     }
-    
+
     /// Check if the cooler is on or off.
-    /// 
+    ///
     /// Returns `Some(true)` if cooler is on, else `Some(false)`.
     fn get_cooler(&self) -> Option<bool> {
         Some(self.cooler_on.load(Ordering::SeqCst))
@@ -678,13 +688,18 @@ impl CameraInfo for CameraUnit_ASI {
     ///  - `InvalidValue` - Invalid control value
     ///  - `InvalidId` - Invalid camera ID
     fn set_cooler(&self, on: bool) -> Result<(), Error> {
-        set_control_value(self.id.0, ASIControlType::CoolerOn, if on {1} else {0}, false)?;
+        set_control_value(
+            self.id.0,
+            ASIControlType::CoolerOn,
+            if on { 1 } else { 0 },
+            false,
+        )?;
         self.cooler_on.store(on, Ordering::SeqCst);
         Ok(())
     }
-    
+
     /// Check if the cooler is on or off.
-    /// 
+    ///
     /// Returns `Some(true)` if cooler is on, else `Some(false)`.
     fn get_cooler(&self) -> Option<bool> {
         Some(self.cooler_on.load(Ordering::SeqCst))
@@ -765,6 +780,9 @@ impl CameraUnit for CameraUnit_ASI {
             } else if stat == ASIExposureStatus::Failed {
                 *capturing = false;
                 warn!("Exposure failed, retrying");
+            } else if stat == ASIExposureStatus::Success {
+                *capturing = false;
+                warn!("Data from previous exposure not downloaded");
             }
             *capturing = false;
             roi = self.get_roi_format()?;
@@ -927,6 +945,206 @@ impl CameraUnit for CameraUnit_ASI {
             );
 
             return Ok(ImageData::new(img, meta));
+        }
+    }
+
+    /// Start exposing the detector and return.
+    ///
+    /// # Errors
+    ///  - [`cameraunit::Error::ExposureInProgress`]: Exposure in progress.
+    ///  - [`cameraunit::Error::InvalidId`]: Invalid camera ID.
+    ///  - [`cameraunit::Error::CameraClosed`]: Camera is closed.
+    ///  - [`cameraunit::Error::GeneralError`]: Video capture mode active.
+    ///
+    fn start_exposure(&self) -> Result<(), Error> {
+        let start_time: SystemTime;
+        {
+            let mut capturing = self.capturing.lock().unwrap();
+            let stat = self.get_exposure_status()?;
+            if stat == ASIExposureStatus::Working {
+                *capturing = true;
+                return Err(Error::ExposureInProgress);
+            } else if stat == ASIExposureStatus::Failed {
+                *capturing = false;
+                warn!("Exposure failed, retrying");
+            }
+            *capturing = true;
+            start_time = SystemTime::now();
+            let res = unsafe {
+                ASIStartExposure(
+                    self.id.0,
+                    if self.is_dark_frame {
+                        ASI_BOOL_ASI_TRUE as i32
+                    } else {
+                        ASI_BOOL_ASI_TRUE as i32
+                    },
+                )
+            };
+            if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+                *capturing = false;
+                return Err(Error::InvalidId(self.id.0));
+            } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+                *capturing = false;
+                return Err(Error::CameraClosed);
+            } else if res == ASI_ERROR_CODE_ASI_ERROR_VIDEO_MODE_ACTIVE as i32 {
+                *capturing = false;
+                return Err(Error::GeneralError("Video mode active".to_owned()));
+            }
+            *self.last_img_start.lock().unwrap() = start_time;
+            Ok(())
+        }
+    }
+
+    /// Check if an image is ready after [`CameraUnit_ASI::start_exposure()`].
+    ///
+    /// # Errors
+    ///  - [`cameraunit::Error::ExposureInProgress`]: Exposure in progress.
+    ///  - [`cameraunit::Error::InvalidId`]: Invalid camera ID.
+    ///  - [`cameraunit::Error::CameraClosed`]: Camera is closed.
+    ///  - [`cameraunit::Error::ExposureFailed`]: Exposure failed for unknown reason/camera
+    /// still idle, indicating previous exposure did not start.
+    fn image_ready(&self) -> Result<(), Error> {
+        let mut capturing = self.capturing.lock().unwrap();
+        let stat = self.get_exposure_status()?;
+        match stat {
+            ASIExposureStatus::Working => Err(Error::ExposureInProgress),
+            ASIExposureStatus::Failed => {
+                *capturing = false;
+                Err(Error::ExposureFailed("Unknown error".to_string()))
+            }
+            ASIExposureStatus::Idle => {
+                *capturing = false;
+                Err(Error::ExposureFailed(
+                    "Camera is idle. Was exposure started?".to_string(),
+                ))
+            }
+            ASIExposureStatus::Success => Ok(()),
+        }
+    }
+
+    /// Download an image captured using [`CameraUnit_ASI::start_exposure()`].
+    ///
+    /// # Errors
+    ///  - [`cameraunit::Error::ExposureInProgress`]: Exposure in progress.
+    ///  - [`cameraunit::Error::ExposureFailed`]: Exposure failed for unknown reason/camera
+    /// still idle, indicating previous exposure did not start.
+    ///  - [`cameraunit::Error::TimedOut`]: Exposure download timed out.
+    ///  - [`cameraunit::Error::InvalidId`]: Invalid camera ID.
+    ///  - [`cameraunit::Error::CameraClosed`]: Camera is closed.
+    fn download_image(&self) -> Result<ImageData, Error> {
+        let mut capturing = self.capturing.lock().unwrap();
+        let stat = self.get_exposure_status()?;
+        match stat {
+            ASIExposureStatus::Working => Err(Error::ExposureInProgress),
+            ASIExposureStatus::Failed => {
+                *capturing = false;
+                Err(Error::ExposureFailed("Unknown error".to_string()))
+            }
+            ASIExposureStatus::Idle => {
+                *capturing = false;
+                Err(Error::ExposureFailed(
+                    "Camera is idle. Was exposure started?".to_string(),
+                ))
+            }
+            ASIExposureStatus::Success => {
+                let roi = self.get_roi_format()?;
+                let img = match roi.fmt {
+                    ASIImageFormat::Image_RAW8 => {
+                        let mut data = vec![0u8; (roi.width * roi.height) as usize];
+                        let res = unsafe {
+                            ASIGetDataAfterExp(
+                                self.id.0,
+                                data.as_mut_ptr() as *mut c_uchar,
+                                (roi.width * roi.height) as c_long,
+                            )
+                        };
+                        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+                            return Err(Error::InvalidId(self.id.0));
+                        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+                            return Err(Error::CameraClosed);
+                        } else if res == ASI_ERROR_CODE_ASI_ERROR_TIMEOUT as i32 {
+                            return Err(Error::TimedOut);
+                        }
+                        *capturing = false; // whether the call succeeds or fails, we are not capturing anymore
+                        let mut img = DynamicImage::new_luma8(roi.width as u32, roi.height as u32)
+                            .into_luma8();
+                        img.copy_from_slice(&data);
+                        DynamicImage::from(img)
+                    }
+                    ASIImageFormat::Image_RAW16 => {
+                        let mut data = vec![0u16; (roi.width * roi.height) as usize];
+                        let res = unsafe {
+                            ASIGetDataAfterExp(
+                                self.id.0,
+                                data.as_mut_ptr() as *mut c_uchar,
+                                (roi.width * roi.height * 2) as c_long,
+                            )
+                        };
+                        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+                            return Err(Error::InvalidId(self.id.0));
+                        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+                            return Err(Error::CameraClosed);
+                        } else if res == ASI_ERROR_CODE_ASI_ERROR_TIMEOUT as i32 {
+                            return Err(Error::TimedOut);
+                        }
+                        *capturing = false; // whether the call succeeds or fails, we are not capturing anymore
+                        let mut img = DynamicImage::new_luma16(roi.width as u32, roi.height as u32)
+                            .into_luma16();
+                        img.copy_from_slice(&data);
+                        DynamicImage::from(img)
+                    }
+                    ASIImageFormat::Image_RGB24 => {
+                        let mut data = vec![0u8; (roi.width * roi.height * 3) as usize];
+                        let res = unsafe {
+                            ASIGetDataAfterExp(
+                                self.id.0,
+                                data.as_mut_ptr() as *mut c_uchar,
+                                (roi.width * roi.height * 3) as c_long,
+                            )
+                        };
+                        if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+                            return Err(Error::InvalidId(self.id.0));
+                        } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+                            return Err(Error::CameraClosed);
+                        } else if res == ASI_ERROR_CODE_ASI_ERROR_TIMEOUT as i32 {
+                            return Err(Error::TimedOut);
+                        }
+                        *capturing = false; // whether the call succeeds or fails, we are not capturing anymore
+                        let mut img =
+                            DynamicImage::new_rgb8(roi.width as u32, roi.height as u32).into_rgb8();
+                        img.copy_from_slice(&data);
+
+                        DynamicImage::from(img)
+                    }
+                };
+                let mut meta = ImageMetaData::full_builder(
+                    self.get_bin_x() as u32,
+                    self.get_bin_y() as u32,
+                    self.roi.y_min as u32,
+                    self.roi.x_min as u32,
+                    self.get_temperature().unwrap_or(-273.0),
+                    self.exposure,
+                    *self.last_img_start.lock().unwrap(),
+                    self.camera_name(),
+                    self.get_gain_raw(),
+                    self.get_offset() as i64,
+                    self.get_min_gain().unwrap_or(0) as i32,
+                    self.get_max_gain().unwrap_or(0) as i32,
+                );
+                meta.add_extended_attrib(
+                    "DARK_FRAME",
+                    &format!(
+                        "{}",
+                        if !self.get_shutter_open().unwrap_or(false) {
+                            "True"
+                        } else {
+                            "False"
+                        }
+                    ),
+                );
+
+                return Ok(ImageData::new(img, meta));
+            }
         }
     }
 
