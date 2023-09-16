@@ -194,7 +194,7 @@ pub fn open_camera(id: i32) -> Result<(CameraUnit_ASI, CameraInfo_ASI), Error> {
             supported_formats: {
                 let mut formats: Vec<ASIImageFormat> = Vec::new();
                 for x in info.SupportedVideoFormat.iter() {
-                    if *x != 0 {
+                    if *x >= 0 {
                         formats.push(ASIImageFormat::from_u32(*x as u32).unwrap());
                     } else {
                         break;
@@ -529,7 +529,7 @@ impl CameraInfo for CameraInfo_ASI {
     ///  - `CameraClosed` - Camera is closed
     fn cancel_capture(&self) -> Result<(), Error> {
         let mut capturing = self.capturing.lock().unwrap();
-        if *capturing {
+        if !*capturing {
             return Ok(());
         }
         sys_cancel_capture(self.id.0)?;
@@ -1193,11 +1193,11 @@ impl Display for ASIControlCaps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Control: {} - {:#?})\n
-            Description: {}\n
-            \tRange: {} - {}\n
-            \tDefault: {}\n
-            \tAuto: {}, Writable: {}\n
+            "Control: {} - {:#?})
+            Description: {}
+            \tRange: {} - {}
+            \tDefault: {}
+            \tAuto: {}, Writable: {}
             ",
             String::from_utf8_lossy(&self.name),
             self.id,
@@ -1241,13 +1241,7 @@ impl Display for ASICameraProps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Camera {}\n
-            \tID: {} UUID: {}\n
-            \tDetector: {} x {}\n
-            \tColor: {}, Shutter: {}, Cooler: {}, USB3: {}, Trigger: {}\n
-            \tBayer Pattern: {:#?}\n
-            \tBins: {:#?}\n
-            \tPixel Size: {} um, e/ADU: {}, Bit Depth: {}\n
+            "Camera {}\n\tID: {} UUID: {}\n\tDetector: {} x {}\n\tColor: {}, Shutter: {}, Cooler: {}, USB3: {}, Trigger: {}\n\tBayer Pattern: {:#?}\n\tBins: {:?}\n\tPixel Size: {} um, e/ADU: {}, Bit Depth: {}
             ",
             self.name,
             self.id,
@@ -1590,12 +1584,21 @@ fn get_temperature(id: i32) -> Option<f32> {
 }
 
 fn get_camera_prop_by_id(id: i32) -> Result<ASI_CAMERA_INFO, Error> {
+    let res = unsafe { ASIOpenCamera(id) };
+    if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_REMOVED as i32 {
+        warn!("Camera removed");
+        return Err(Error::CameraRemoved);
+    }
+    else if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
+        return Err(Error::InvalidId(id));
+    }
     let info = MaybeUninit::<ASI_CAMERA_INFO>::zeroed();
     let mut info = unsafe { info.assume_init() };
     let res = unsafe { ASIGetCameraPropertyByID(id, &mut info) };
     if res == ASI_ERROR_CODE_ASI_ERROR_INVALID_ID as i32 {
         return Err(Error::InvalidId(id));
     } else if res == ASI_ERROR_CODE_ASI_ERROR_CAMERA_CLOSED as i32 {
+        warn!("Camera closed");
         return Err(Error::CameraClosed);
     }
     Ok(info)

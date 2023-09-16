@@ -10,5 +10,6 @@ cameraunit = { path = "../cameraunit" }
 cameraunit_asi = { path = "../cameraunit_asi" }
 chrono = "0.4.30"
 ctrlc = "3.4.1"
+fitsio = "0.21.2"
 imagedata = { path = "../imagedata" }
 ini = "1.3.0"
