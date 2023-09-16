@@ -1,14 +1,15 @@
 use std::{
+    io::{self, Write},
     path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
     thread::{self, sleep},
-    time::{Duration, SystemTime}, io::{self, Write},
+    time::{Duration, SystemTime},
 };
 
-use cameraunit::{CameraInfo, CameraUnit, ROI};
+use cameraunit::{CameraInfo, CameraUnit, Error, ImageData, ROI};
 use cameraunit_asi::{num_cameras, open_first_camera, ASIImageFormat};
 use chrono::{DateTime, Local};
 use ini::ini;
@@ -49,7 +50,9 @@ fn main() {
     let cam_ctrlc = caminfo.clone();
     ctrlc::set_handler(move || {
         done_hdl.store(true, Ordering::SeqCst);
-        cam_ctrlc.cancel_capture().unwrap_or(());
+        cam_ctrlc.cancel_capture().unwrap_or(()); // This is NOT dropped!!!
+        cam_ctrlc.set_cooler(false).unwrap_or(()); // Workaround!
+        println!("\nCtrl + C received!");
     })
     .expect("Error setting Ctrl-C handler");
 
@@ -62,14 +65,15 @@ fn main() {
             // let stdout = io::stdout();
             // let _ = write!(&mut stdout.lock(),
             print!(
-                "[{}] Camera temperature: {:>+05.1} C, Cooler Power: {:>03}\t",
+                "[{}] Camera temperature: {:>+05.1} C, Cooler Power: {:>3}%\t",
                 dtime.format("%H:%M:%S"),
                 temp,
-                caminfo.get_cooler_power().unwrap()
+                &caminfo.get_cooler_power().unwrap()
             );
             io::stdout().flush().unwrap();
             print!("\r");
         }
+        println!("\nExiting housekeeping thread");
     });
     cam.set_gain_raw(cfg.gain as i64).unwrap();
     cam.set_roi(&ROI {
@@ -84,7 +88,32 @@ fn main() {
     cam.set_image_fmt(ASIImageFormat::Image_RAW16).unwrap();
     cam.set_exposure(Duration::from_millis(100)).unwrap();
     while !done.load(Ordering::SeqCst) {
-        let img = cam.capture_image().unwrap();
+        let img: ImageData;
+        let res = cam.capture_image();
+        match res {
+            Ok(im) => img = im,
+            Err(err) => match err {
+                Error::CameraClosed => {
+                    done.store(true, Ordering::SeqCst);
+                    break;
+                }
+                Error::CameraRemoved => {
+                    done.store(true, Ordering::SeqCst);
+                    break;
+                }
+                Error::InvalidId(_) => {
+                    done.store(true, Ordering::SeqCst);
+                    break;
+                }
+                Error::ExposureFailed(msg) => {
+                    println!("Exposure failed: {}", msg);
+                    continue;
+                }
+                _ => {
+                    continue;
+                }
+            },
+        }
         let val: DateTime<Local> = SystemTime::now().into();
         let dir_prefix = Path::new(&cfg.savedir).join(val.format("%Y%m%d").to_string());
         if !dir_prefix.exists() {
@@ -95,7 +124,7 @@ fn main() {
             let res = match res {
                 fitsio::errors::Error::ExistingFile(res) => res,
                 fitsio::errors::Error::Fits(_) => "Fits Error".to_string(),
-                fitsio::errors::Error::Index(_) => "Index error".to_string(), 
+                fitsio::errors::Error::Index(_) => "Index error".to_string(),
                 fitsio::errors::Error::IntoString(_) => "Into string".to_string(),
                 fitsio::errors::Error::Io(_) => "IO Error".to_string(),
                 fitsio::errors::Error::Message(res) => res,
@@ -143,6 +172,7 @@ fn main() {
         }
     }
     camthread.join().unwrap();
+    println!("\nExiting");
 }
 
 impl Default for ASICamconfig {

@@ -53,9 +53,9 @@ pub trait CameraInfo {
 
     /// Cancel an ongoing exposure.
     /// 
-    /// Raises a `GeneralError` with the message `"Not implemented"` if unimplemented.
+    /// Raises a `Message` with the message `"Not implemented"` if unimplemented.
     fn cancel_capture(&self) -> Result<(), Error> {
-        Err(Error::GeneralError("Not implemented".to_string()))
+        Err(Error::Message("Not implemented".to_string()))
     }
 
     /// Get any associated unique identifier for the camera.
@@ -74,7 +74,7 @@ pub trait CameraInfo {
 
     /// Set the target detector temperature.
     /// 
-    /// Raises a `GeneralError` with the message `"Not implemented"` if unimplemented.
+    /// Raises a `Message` with the message `"Not implemented"` if unimplemented.
     fn set_temperature(&self, _temperature: f32) -> Result<f32, Error> {
         Err(Error::Message("Not implemented".to_string()))
     }
@@ -83,6 +83,20 @@ pub trait CameraInfo {
     /// 
     /// Defaults to `None` if unimplemented.
     fn get_temperature(&self) -> Option<f32> {
+        None
+    }
+
+    /// Enable/disable cooler.
+    /// 
+    /// Raises a `Message` with the message `"Not implemented"` if unimplemented.
+    fn set_cooler(&self, _on: bool) -> Result<(), Error> {
+        Err(Error::Message("Not implemented".to_string()))
+    }
+
+    /// Check if cooler is enabled/disabled.
+    /// 
+    /// Defaults to `None` if unimplemented/not available.
+    fn get_cooler(&self) -> Option<bool> {
         None
     }
 
