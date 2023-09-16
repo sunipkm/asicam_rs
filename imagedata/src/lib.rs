@@ -19,6 +19,7 @@ mod tests {
         let mut img = {
             let mut meta: ImageMetaData = Default::default();
             meta.timestamp = SystemTime::now();
+            meta.camera_name = "ZWO ASI533MM Pro".to_string();
             meta.add_extended_attrib("TEST", "TEST");
             let img = DynamicImage::from(ImageBuffer::<image::Luma<u16>, Vec<u16>>::new(800, 600));
             imagedata::ImageData::new(img, meta)

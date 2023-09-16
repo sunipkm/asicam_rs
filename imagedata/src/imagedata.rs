@@ -475,7 +475,7 @@ impl ImageData {
             }
         }
         hdu.write_key(&mut fptr, "PROGRAM", progname)?;
-        hdu.write_key(&mut fptr, "CAMERA", self.meta.camera_name.clone())?;
+        hdu.write_key(&mut fptr, "CAMERA", self.meta.camera_name.as_str())?;
         hdu.write_key(&mut fptr, "TIMESTAMP", timestamp as u64)?;
         hdu.write_key(&mut fptr, "CCDTEMP", self.meta.temperature)?;
         hdu.write_key(

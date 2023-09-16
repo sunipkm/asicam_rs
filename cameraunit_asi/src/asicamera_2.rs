@@ -114,10 +114,7 @@ pub fn get_camera_ids() -> Option<HashMap<i32, String>> {
                 let info = info.unwrap();
                 map.insert(
                     info.CameraID,
-                    String::from_utf8_lossy(&unsafe {
-                        std::mem::transmute_copy::<[i8; 64], [u8; 64]>(&info.Name)
-                    })
-                    .to_string(),
+                    string_from_i8(&info.Name),
                 );
             }
         }
@@ -166,10 +163,7 @@ pub fn open_camera(id: i32) -> Result<(CameraUnit_ASI, CameraInfo_ASI), Error> {
         let info = get_camera_prop_by_id(id)?;
 
         let mut prop = ASICameraProps {
-            name: String::from_utf8_lossy(&unsafe {
-                std::mem::transmute_copy::<[i8; 64], [u8; 64]>(&info.Name)
-            })
-            .to_string(),
+            name: string_from_i8(&info.Name),
             id: info.CameraID,
             uuid: [0; 8],
             max_height: info.MaxHeight,
@@ -1193,15 +1187,10 @@ impl Display for ASIControlCaps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Control: {} - {:#?})
-            Description: {}
-            \tRange: {} - {}
-            \tDefault: {}
-            \tAuto: {}, Writable: {}
-            ",
-            String::from_utf8_lossy(&self.name),
+            "Control: {} - {:#?}\n\tDescription: {}\n\tRange: {} - {}\n\tDefault: {}\n\tAuto: {}, Writable: {}",
+            string_from_i8(&self.name),
             self.id,
-            String::from_utf8_lossy(&self.description),
+            string_from_i8(&self.description),
             self.min_value,
             self.max_value,
             self.default_value,
@@ -1256,8 +1245,8 @@ impl Display for ASICameraProps {
             self.bayer_pattern,
             self.supported_bins,
             self.pixel_size,
-            self.bit_depth,
             self.e_per_adu,
+            self.bit_depth,
         )
     }
 }
@@ -1378,8 +1367,8 @@ enum ASIExposureStatus {
 #[derive(Clone)]
 struct ASIControlCaps {
     id: ASIControlType,
-    name: [u8; 64],
-    description: [u8; 128],
+    name: [i8; 64],
+    description: [i8; 128],
     min_value: i64,
     max_value: i64,
     default_value: i64,
@@ -1434,10 +1423,8 @@ fn get_control_caps(id: i32) -> Result<Vec<ASIControlCaps>, Error> {
         }
         let cap = ASIControlCaps {
             id: ASIControlType::from_u32(cap.ControlType).unwrap(),
-            name: unsafe { std::mem::transmute_copy::<[i8; 64], [u8; 64]>(&cap.Name) },
-            description: unsafe {
-                std::mem::transmute_copy::<[i8; 128], [u8; 128]>(&cap.Description)
-            },
+            name: cap.Name,
+            description: cap.Description,
             min_value: cap.MinValue,
             max_value: cap.MaxValue,
             default_value: cap.DefaultValue,
@@ -1564,6 +1551,8 @@ fn set_temperature(id: i32, temperature: f32, is_cooler_cam: bool) -> Result<f32
     }
     let temperature = temperature as c_long;
     set_control_value(id, ASIControlType::TargetTemp, temperature, false)?;
+    let (temperature, _is_auto) = get_control_value(id, ASIControlType::TargetTemp)?;
+    set_control_value(id, ASIControlType::CoolerOn, 1, false)?;
     Ok(temperature as f32)
 }
 
@@ -1612,4 +1601,13 @@ fn get_camera_prop_by_idx(idx: i32) -> Result<ASI_CAMERA_INFO, Error> {
         return Err(Error::InvalidId(idx));
     }
     Ok(info)
+}
+
+fn string_from_i8<const N: usize>(inp: &[i8; N]) -> String {
+    let mut str = String::from_utf8_lossy(&unsafe {
+        std::mem::transmute_copy::<[i8; N], [u8; N]>(inp)
+    })
+    .to_string();
+    str.retain(|c| c != '\0');
+    str
 }

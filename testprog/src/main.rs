@@ -5,7 +5,7 @@ use std::{
         Arc,
     },
     thread::{self, sleep},
-    time::{Duration, SystemTime},
+    time::{Duration, SystemTime}, io::{self, Write},
 };
 
 use cameraunit::{CameraInfo, CameraUnit, ROI};
@@ -42,6 +42,8 @@ fn main() {
     let props = cam.get_props();
     println!("{}", props);
     let cfg = ASICamconfig::from_ini("asicam.ini").unwrap();
+
+    println!("Setting target temperature: {} C", cfg.target_temp);
     cam.set_temperature(cfg.target_temp).unwrap();
 
     let cam_ctrlc = caminfo.clone();
@@ -52,17 +54,21 @@ fn main() {
     .expect("Error setting Ctrl-C handler");
 
     let camthread = thread::spawn(move || {
-        while done_thr.load(Ordering::SeqCst) {
+        while !done_thr.load(Ordering::SeqCst) {
             // let caminfo = cam;
             sleep(Duration::from_secs(1));
             let temp = caminfo.get_temperature().unwrap();
             let dtime: DateTime<Local> = SystemTime::now().into();
+            // let stdout = io::stdout();
+            // let _ = write!(&mut stdout.lock(),
             print!(
-                "[{}] Camera temperature: {:>+05.1} C, Cooler Power: {:>03}\r",
+                "[{}] Camera temperature: {:>+05.1} C, Cooler Power: {:>03}\t",
                 dtime.format("%H:%M:%S"),
                 temp,
                 caminfo.get_cooler_power().unwrap()
             );
+            io::stdout().flush().unwrap();
+            print!("\r");
         }
     });
     cam.set_gain_raw(cfg.gain as i64).unwrap();
@@ -100,13 +106,13 @@ fn main() {
             };
 
             println!(
-                "[{}] AERO: Error saving image: {:#?}",
+                "\n[{}] AERO: Error saving image: {:#?}",
                 val.format("%H:%M:%S"),
                 res
             );
         } else {
             println!(
-                "[{}] AERO: Saved image, exposure {:.3}",
+                "[\n{}] AERO: Saved image, exposure {:.3} s",
                 val.format("%H:%M:%S"),
                 cam.get_exposure().as_secs_f32()
             );
@@ -124,7 +130,7 @@ fn main() {
             .unwrap();
         if exposure != cam.get_exposure() {
             println!(
-                "[{}] AERO: Exposure changed from {:.3} s to {:.3} s",
+                "\n[{}] AERO: Exposure changed from {:.3} s to {:.3} s",
                 val.format("%H:%M:%S"),
                 cam.get_exposure().as_secs_f32(),
                 exposure.as_secs_f32()
